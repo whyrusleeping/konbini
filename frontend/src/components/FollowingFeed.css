@@ -1,0 +1,56 @@
+.following-feed {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.feed-header {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e1e8ed;
+}
+
+.feed-header h1 {
+  margin: 0 0 8px 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f1419;
+}
+
+.feed-header p {
+  margin: 0;
+  font-size: 14px;
+  color: #536471;
+}
+
+.feed-content {
+  /* PostCard styles will handle individual post styling */
+}
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  font-size: 16px;
+  color: #536471;
+}
+
+.error {
+  text-align: center;
+  padding: 40px;
+  font-size: 16px;
+  color: #d63939;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+}
+
+.empty-feed {
+  text-align: center;
+  padding: 60px 20px;
+  color: #536471;
+}
+
+.empty-feed p {
+  margin: 0;
+  font-size: 16px;
+}
