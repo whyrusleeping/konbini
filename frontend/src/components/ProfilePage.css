@@ -221,6 +221,29 @@
   font-size: 16px;
 }
 
+.load-more-trigger {
+  min-height: 20px;
+  padding: 20px 0;
+}
+
+.loading-more {
+  text-align: center;
+  padding: 20px;
+  color: #536471;
+  font-size: 14px;
+}
+
+.end-of-feed {
+  text-align: center;
+  padding: 40px 20px;
+  color: #657786;
+  font-size: 14px;
+}
+
+.end-of-feed p {
+  margin: 0;
+}
+
 @media (max-width: 600px) {
   .profile-page {
     margin: 0;

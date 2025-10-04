@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { ActorProfile, PostResponse } from '../types';
 import { ApiClient } from '../api';
@@ -67,12 +67,12 @@ export const ProfilePage: React.FC = () => {
     fetchProfile();
   }, [account]);
 
-  const fetchMorePosts = async (cursor: string) => {
+  const fetchMorePosts = useCallback(async (cursorToUse: string) => {
     if (!account || loadingMore || !hasMore) return;
 
     try {
       setLoadingMore(true);
-      const data = await ApiClient.getProfilePosts(account, cursor);
+      const data = await ApiClient.getProfilePosts(account, cursorToUse);
       setPosts(prev => [...prev, ...data.posts]);
       setCursor(data.cursor || null);
       setHasMore(!!(data.cursor && data.posts.length > 0));
@@ -81,30 +81,29 @@ export const ProfilePage: React.FC = () => {
     } finally {
       setLoadingMore(false);
     }
-  };
+  }, [account, loadingMore, hasMore]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
-          if (cursor) {
-            fetchMorePosts(cursor);
-          }
+        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading && cursor) {
+          fetchMorePosts(cursor);
         }
       },
       { threshold: 0.1 }
     );
 
-    if (observerTarget.current) {
-      observer.observe(observerTarget.current);
+    const currentTarget = observerTarget.current;
+    if (currentTarget) {
+      observer.observe(currentTarget);
     }
 
     return () => {
-      if (observerTarget.current) {
-        observer.unobserve(observerTarget.current);
+      if (currentTarget) {
+        observer.unobserve(currentTarget);
       }
     };
-  }, [hasMore, loadingMore, loading, cursor]);
+  }, [hasMore, loadingMore, loading, cursor, fetchMorePosts]);
 
   if (loading) {
     return (
@@ -216,9 +215,15 @@ export const ProfilePage: React.FC = () => {
               <p>{activeTab === 'posts' ? 'No posts yet' : 'No replies yet'}</p>
             </div>
           )}
-          {hasMore && <div ref={observerTarget} style={{ height: '20px' }} />}
-          {loadingMore && (
-            <div className="loading-more">Loading more posts...</div>
+          {hasMore && (
+            <div ref={observerTarget} className="load-more-trigger">
+              {loadingMore && <div className="loading-more">Loading more posts...</div>}
+            </div>
+          )}
+          {!hasMore && posts.length > 0 && (
+            <div className="end-of-feed">
+              <p>You've reached the end!</p>
+            </div>
           )}
         </div>
       </div>

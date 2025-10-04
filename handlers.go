@@ -149,7 +149,7 @@ func (s *Server) handleGetProfilePosts(e echo.Context) error {
 
 	// Get cursor from query parameter (timestamp in RFC3339 format)
 	cursor := e.QueryParam("cursor")
-	limit := 20
+	limit := 50
 
 	tcursor := time.Now()
 	if cursor != "" {
