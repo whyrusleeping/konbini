@@ -16,6 +16,7 @@ export const ProfilePage: React.FC = () => {
   const [userDid, setUserDid] = useState<string | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [activeTab, setActiveTab] = useState<'posts' | 'replies'>('posts');
   const observerTarget = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -189,17 +190,30 @@ export const ProfilePage: React.FC = () => {
       </div>
 
       <div className="profile-content">
-        <div className="posts-header">
-          <h2>Posts ({posts.length})</h2>
+        <div className="profile-tabs">
+          <button
+            className={`profile-tab ${activeTab === 'posts' ? 'profile-tab--active' : ''}`}
+            onClick={() => setActiveTab('posts')}
+          >
+            Posts
+          </button>
+          <button
+            className={`profile-tab ${activeTab === 'replies' ? 'profile-tab--active' : ''}`}
+            onClick={() => setActiveTab('replies')}
+          >
+            Replies
+          </button>
         </div>
 
         <div className="posts-list">
-          {posts.map((post, index) => (
-            <PostCard key={post.uri || index} postResponse={post} />
-          ))}
-          {posts.length === 0 && !loading && (
+          {posts
+            .filter(post => activeTab === 'posts' ? !post.replyTo : !!post.replyTo)
+            .map((post, index) => (
+              <PostCard key={post.uri || index} postResponse={post} />
+            ))}
+          {posts.filter(post => activeTab === 'posts' ? !post.replyTo : !!post.replyTo).length === 0 && !loading && (
             <div className="empty-posts">
-              <p>No posts yet</p>
+              <p>{activeTab === 'posts' ? 'No posts yet' : 'No replies yet'}</p>
             </div>
           )}
           {hasMore && <div ref={observerTarget} style={{ height: '20px' }} />}

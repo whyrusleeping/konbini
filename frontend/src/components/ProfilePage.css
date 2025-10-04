@@ -147,6 +147,34 @@
   padding: 0 20px;
 }
 
+.profile-tabs {
+  display: flex;
+  border-bottom: 1px solid #e1e8ed;
+  margin-bottom: 16px;
+}
+
+.profile-tab {
+  flex: 1;
+  padding: 16px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 15px;
+  font-weight: 600;
+  color: #536471;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.profile-tab:hover {
+  background-color: #f7f9fa;
+}
+
+.profile-tab--active {
+  color: #1da1f2;
+  border-bottom-color: #1da1f2;
+}
+
 .posts-header {
   padding: 16px 0;
   border-bottom: 1px solid #e1e8ed;

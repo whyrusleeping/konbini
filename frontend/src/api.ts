@@ -3,6 +3,14 @@ import { PostResponse, ActorProfile, ApiError, ThreadResponse, EngagementRespons
 const API_BASE_URL = 'http://localhost:4444/api';
 
 export class ApiClient {
+  static async getMe(): Promise<{did: string, handle: string}> {
+    const response = await fetch(`${API_BASE_URL}/me`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch current user: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
   static async getFollowingFeed(cursor?: string): Promise<FeedResponse> {
     const url = cursor
       ? `${API_BASE_URL}/followingfeed?cursor=${encodeURIComponent(cursor)}`

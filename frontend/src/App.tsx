@@ -1,14 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { FollowingFeed } from './components/FollowingFeed';
 import { ProfilePage } from './components/ProfilePage';
 import { PostView } from './components/PostView';
 import { ThreadView } from './components/ThreadView';
 import { PostComposer } from './components/PostComposer';
+import { ApiClient } from './api';
 import './App.css';
 
 function Navigation() {
   const location = useLocation();
+  const [myHandle, setMyHandle] = useState<string | null>(null);
+
+  useEffect(() => {
+    ApiClient.getMe().then(data => {
+      setMyHandle(data.handle);
+    }).catch(err => {
+      console.error('Failed to fetch current user:', err);
+    });
+  }, []);
 
   return (
     <nav className="app-nav">
@@ -23,6 +33,14 @@ function Navigation() {
           >
             Following
           </Link>
+          {myHandle && (
+            <Link
+              to={`/profile/${myHandle}`}
+              className={`nav-link ${location.pathname.includes('/profile/') ? 'active' : ''}`}
+            >
+              Profile
+            </Link>
+          )}
         </div>
       </div>
     </nav>

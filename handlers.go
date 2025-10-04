@@ -25,6 +25,7 @@ func (s *Server) runApiServer() error {
 	e.GET("/debug", s.handleGetDebugInfo)
 
 	views := e.Group("/api")
+	views.GET("/me", s.handleGetMe)
 	views.GET("/profile/:account/post/:rkey", s.handleGetPost)
 	views.GET("/profile/:account", s.handleGetProfileView)
 	views.GET("/profile/:account/posts", s.handleGetProfilePosts)
@@ -45,6 +46,22 @@ func (s *Server) handleGetDebugInfo(e echo.Context) error {
 
 	return e.JSON(200, map[string]any{
 		"seq": seq,
+	})
+}
+
+func (s *Server) handleGetMe(e echo.Context) error {
+	ctx := e.Request().Context()
+
+	resp, err := s.dir.LookupDID(ctx, syntax.DID(s.mydid))
+	if err != nil {
+		return e.JSON(500, map[string]any{
+			"error": "failed to lookup handle",
+		})
+	}
+
+	return e.JSON(200, map[string]any{
+		"did":    s.mydid,
+		"handle": resp.Handle.String(),
 	})
 }
 
