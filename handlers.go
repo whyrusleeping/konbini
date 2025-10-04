@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/bluesky-social/indigo/atproto/syntax"
+	"github.com/bluesky-social/indigo/xrpc"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
@@ -21,6 +23,7 @@ func (s *Server) runApiServer() error {
 	e := echo.New()
 	e.Use(middleware.CORS())
 	e.GET("/debug", s.handleGetDebugInfo)
+
 	views := e.Group("/api")
 	views.GET("/profile/:account/post/:rkey", s.handleGetPost)
 	views.GET("/profile/:account", s.handleGetProfileView)
@@ -30,6 +33,7 @@ func (s *Server) runApiServer() error {
 	views.GET("/post/:postid/likes", s.handleGetPostLikes)
 	views.GET("/post/:postid/reposts", s.handleGetPostReposts)
 	views.GET("/post/:postid/replies", s.handleGetPostReplies)
+	views.POST("/createRecord", s.handleCreateRecord)
 
 	return e.Start(":4444")
 }
@@ -126,49 +130,36 @@ func (s *Server) handleGetProfilePosts(e echo.Context) error {
 		return err
 	}
 
+	// Get cursor from query parameter (timestamp in RFC3339 format)
+	cursor := e.QueryParam("cursor")
+	limit := 20
+
+	tcursor := time.Now()
+	if cursor != "" {
+		t, err := time.Parse(time.RFC3339, cursor)
+		if err != nil {
+			return fmt.Errorf("invalid cursor: %w", err)
+		}
+		tcursor = t
+	}
+
 	var dbposts []models.Post
-	if err := s.backend.db.Find(&dbposts, "author = ?", r.ID).Error; err != nil {
+	if err := s.backend.db.Raw("SELECT * FROM posts WHERE author = ? AND created < ? ORDER BY created DESC LIMIT ?", r.ID, tcursor, limit).Scan(&dbposts).Error; err != nil {
 		return err
 	}
 
-	author, err := s.getAuthorInfo(ctx, r)
-	if err != nil {
-		slog.Error("failed to load author info for post", "error", err)
+	posts := s.hydratePosts(ctx, dbposts)
+
+	// Generate next cursor from the last post's timestamp
+	var nextCursor string
+	if len(dbposts) > 0 {
+		nextCursor = dbposts[len(dbposts)-1].Created.Format(time.RFC3339)
 	}
 
-	posts := []postResponse{}
-	for _, p := range dbposts {
-		uri := fmt.Sprintf("at://%s/app.bsky.feed.post/%s", r.Did, p.Rkey)
-		if len(p.Raw) == 0 || p.NotFound {
-			posts = append(posts, postResponse{
-				Uri:     uri,
-				Missing: true,
-			})
-			continue
-		}
-		var fp bsky.FeedPost
-		if err := fp.UnmarshalCBOR(bytes.NewReader(p.Raw)); err != nil {
-			return err
-		}
-
-		counts, err := s.getPostCounts(ctx, p.ID)
-		if err != nil {
-			slog.Error("failed to get counts for post", "post", p.ID, "error", err)
-		}
-
-		posts = append(posts, postResponse{
-			Uri:        uri,
-			Post:       &fp,
-			AuthorInfo: author,
-			Counts:     counts,
-			ID:         p.ID,
-			ReplyTo:    p.ReplyTo,
-			ReplyToUsr: p.ReplyToUsr,
-			InThread:   p.InThread,
-		})
-	}
-
-	return e.JSON(200, posts)
+	return e.JSON(200, map[string]any{
+		"posts":  posts,
+		"cursor": nextCursor,
+	})
 }
 
 type postCounts struct {
@@ -177,16 +168,41 @@ type postCounts struct {
 	Replies int `json:"replies"`
 }
 
+type embedRecordView struct {
+	Type   string         `json:"$type"`
+	Uri    string         `json:"uri"`
+	Cid    string         `json:"cid"`
+	Author *authorInfo    `json:"author,omitempty"`
+	Value  *bsky.FeedPost `json:"value,omitempty"`
+}
+
+type viewerLike struct {
+	Uri string `json:"uri"`
+	Cid string `json:"cid"`
+}
+
 type postResponse struct {
-	Missing    bool           `json:"missing"`
-	Uri        string         `json:"uri"`
-	Post       *bsky.FeedPost `json:"post"`
-	AuthorInfo *authorInfo    `json:"author"`
-	Counts     *postCounts    `json:"counts"`
-	ID         uint           `json:"id"`
-	ReplyTo    uint           `json:"replyTo,omitempty"`
-	ReplyToUsr uint           `json:"replyToUsr,omitempty"`
-	InThread   uint           `json:"inThread,omitempty"`
+	Missing    bool          `json:"missing"`
+	Uri        string        `json:"uri"`
+	Cid        string        `json:"cid"`
+	Post       *feedPostView `json:"post"`
+	AuthorInfo *authorInfo   `json:"author"`
+	Counts     *postCounts   `json:"counts"`
+	ViewerLike *viewerLike   `json:"viewerLike,omitempty"`
+
+	ID         uint `json:"id"`
+	ReplyTo    uint `json:"replyTo,omitempty"`
+	ReplyToUsr uint `json:"replyToUsr,omitempty"`
+	InThread   uint `json:"inThread,omitempty"`
+}
+
+type feedPostView struct {
+	Type      string      `json:"$type"`
+	CreatedAt string      `json:"createdAt"`
+	Langs     []string    `json:"langs,omitempty"`
+	Text      string      `json:"text"`
+	Facets    interface{} `json:"facets,omitempty"`
+	Embed     interface{} `json:"embed,omitempty"`
 }
 
 type authorInfo struct {
@@ -220,6 +236,84 @@ func (s *Server) handleGetFollowingFeed(e echo.Context) error {
 		return err
 	}
 
+	posts := s.hydratePosts(ctx, dbposts)
+
+	// Generate next cursor from the last post's timestamp
+	var nextCursor string
+	if len(dbposts) > 0 {
+		nextCursor = dbposts[len(dbposts)-1].Created.Format(time.RFC3339)
+	}
+
+	return e.JSON(200, map[string]any{
+		"posts":  posts,
+		"cursor": nextCursor,
+	})
+}
+
+func (s *Server) getAuthorInfo(ctx context.Context, r *models.Repo) (*authorInfo, error) {
+	var profile models.Profile
+	if err := s.backend.db.Find(&profile, "repo = ?", r.ID).Error; err != nil {
+		return nil, err
+	}
+
+	resp, err := s.dir.LookupDID(ctx, syntax.DID(r.Did))
+	if err != nil {
+		return nil, err
+	}
+
+	if profile.Raw == nil || len(profile.Raw) == 0 {
+		s.addMissingProfile(ctx, r.Did)
+		return &authorInfo{
+			Handle: resp.Handle.String(),
+			Did:    r.Did,
+		}, nil
+	}
+
+	var prof bsky.ActorProfile
+	if err := prof.UnmarshalCBOR(bytes.NewReader(profile.Raw)); err != nil {
+		return nil, err
+	}
+
+	return &authorInfo{
+		Handle:  resp.Handle.String(),
+		Did:     r.Did,
+		Profile: &prof,
+	}, nil
+}
+
+func (s *Server) getPostCounts(ctx context.Context, pid uint) (*postCounts, error) {
+	var pc postCounts
+	var wg sync.WaitGroup
+
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+		if err := s.backend.db.Raw("SELECT count(*) FROM likes WHERE subject = ?", pid).Scan(&pc.Likes).Error; err != nil {
+			slog.Error("failed to get likes count", "post", pid, "error", err)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if err := s.backend.db.Raw("SELECT count(*) FROM reposts WHERE subject = ?", pid).Scan(&pc.Reposts).Error; err != nil {
+			slog.Error("failed to get reposts count", "post", pid, "error", err)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if err := s.backend.db.Raw("SELECT count(*) FROM posts WHERE reply_to = ?", pid).Scan(&pc.Replies).Error; err != nil {
+			slog.Error("failed to get replies count", "post", pid, "error", err)
+		}
+	}()
+
+	wg.Wait()
+
+	return &pc, nil
+}
+
+func (s *Server) hydratePosts(ctx context.Context, dbposts []models.Post) []postResponse {
 	posts := make([]postResponse, len(dbposts))
 	var wg sync.WaitGroup
 
@@ -267,77 +361,118 @@ func (s *Server) handleGetFollowingFeed(e echo.Context) error {
 				slog.Error("failed to get counts for post", "post", p.ID, "error", err)
 			}
 
+			// Build post view with hydrated embeds
+			postView := s.buildPostView(ctx, &fp)
+
+			viewerLike := s.checkViewerLike(ctx, p.ID)
+
 			posts[ix] = postResponse{
 				Uri:        uri,
-				Post:       &fp,
+				Cid:        p.Cid,
+				Post:       postView,
 				AuthorInfo: author,
 				Counts:     counts,
 				ID:         p.ID,
 				ReplyTo:    p.ReplyTo,
 				ReplyToUsr: p.ReplyToUsr,
 				InThread:   p.InThread,
+
+				ViewerLike: viewerLike,
 			}
 		}(i)
 	}
 
 	wg.Wait()
 
-	// Generate next cursor from the last post's timestamp
-	var nextCursor string
-	if len(dbposts) > 0 {
-		nextCursor = dbposts[len(dbposts)-1].Created.Format(time.RFC3339)
-	}
-
-	return e.JSON(200, map[string]any{
-		"posts":  posts,
-		"cursor": nextCursor,
-	})
+	return posts
 }
 
-func (s *Server) getAuthorInfo(ctx context.Context, r *models.Repo) (*authorInfo, error) {
-	var profile models.Profile
-	if err := s.backend.db.Find(&profile, "repo = ?", r.ID).Error; err != nil {
-		return nil, err
+func (s *Server) checkViewerLike(ctx context.Context, pid uint) *viewerLike {
+	var like Like
+	if err := s.backend.db.Raw("SELECT * FROM likes WHERE subject = ? AND author = ?", pid, s.myrepo.ID).Scan(&like).Error; err != nil {
+		slog.Error("failed to lookup like", "error", err)
+		return nil
 	}
 
-	resp, err := s.dir.LookupDID(ctx, syntax.DID(r.Did))
-	if err != nil {
-		return nil, err
+	if like.ID == 0 {
+		return nil
 	}
 
-	if profile.Raw == nil || len(profile.Raw) == 0 {
-		s.addMissingProfile(ctx, r.Did)
-		return &authorInfo{
-			Handle: resp.Handle.String(),
-			Did:    r.Did,
-		}, nil
-	}
+	uri := fmt.Sprintf("at://%s/app.bsky.feed.like/%s", s.myrepo.Did, like.Rkey)
 
-	var prof bsky.ActorProfile
-	if err := prof.UnmarshalCBOR(bytes.NewReader(profile.Raw)); err != nil {
-		return nil, err
+	return &viewerLike{
+		Uri: uri,
+		Cid: like.Cid,
 	}
-
-	return &authorInfo{
-		Handle:  resp.Handle.String(),
-		Did:     r.Did,
-		Profile: &prof,
-	}, nil
 }
 
-func (s *Server) getPostCounts(ctx context.Context, pid uint) (*postCounts, error) {
-	var pc postCounts
-	if err := s.backend.db.Raw("SELECT count(*) FROM likes WHERE subject = ?", pid).Scan(&pc.Likes).Error; err != nil {
-		return nil, err
-	}
-	if err := s.backend.db.Raw("SELECT count(*) FROM reposts WHERE subject = ?", pid).Scan(&pc.Reposts).Error; err != nil {
-		return nil, err
-	}
-	if err := s.backend.db.Raw("SELECT count(*) FROM posts WHERE reply_to = ?", pid).Scan(&pc.Replies).Error; err != nil {
-		return nil, err
+func (s *Server) buildPostView(ctx context.Context, fp *bsky.FeedPost) *feedPostView {
+	view := &feedPostView{
+		Type:      fp.LexiconTypeID,
+		CreatedAt: fp.CreatedAt,
+		Text:      fp.Text,
+		Facets:    fp.Facets,
 	}
 
-	return &pc, nil
+	if fp.Langs != nil {
+		view.Langs = fp.Langs
+	}
+
+	// Hydrate embed if present
+	if fp.Embed != nil {
+		slog.Info("processing embed", "hasImages", fp.Embed.EmbedImages != nil, "hasExternal", fp.Embed.EmbedExternal != nil, "hasRecord", fp.Embed.EmbedRecord != nil)
+		if fp.Embed.EmbedImages != nil {
+			view.Embed = fp.Embed.EmbedImages
+		} else if fp.Embed.EmbedExternal != nil {
+			view.Embed = fp.Embed.EmbedExternal
+		} else if fp.Embed.EmbedRecord != nil {
+			// Hydrate quoted post
+			quotedURI := fp.Embed.EmbedRecord.Record.Uri
+			quotedCid := fp.Embed.EmbedRecord.Record.Cid
+			slog.Info("hydrating quoted post", "uri", quotedURI, "cid", quotedCid)
+
+			quotedPost, err := s.backend.getPostByUri(ctx, quotedURI, "*")
+			if err != nil {
+				slog.Warn("failed to get quoted post", "uri", quotedURI, "error", err)
+			}
+			if err == nil && quotedPost != nil && quotedPost.Raw != nil && len(quotedPost.Raw) > 0 && !quotedPost.NotFound {
+				slog.Info("found quoted post, hydrating")
+				var quotedFP bsky.FeedPost
+				if err := quotedFP.UnmarshalCBOR(bytes.NewReader(quotedPost.Raw)); err == nil {
+					quotedRepo, err := s.backend.getRepoByID(ctx, quotedPost.Author)
+					if err == nil {
+						quotedAuthor, err := s.getAuthorInfo(ctx, quotedRepo)
+						if err == nil {
+							view.Embed = map[string]interface{}{
+								"$type": "app.bsky.embed.record",
+								"record": &embedRecordView{
+									Type:   "app.bsky.embed.record#viewRecord",
+									Uri:    quotedURI,
+									Cid:    quotedCid,
+									Author: quotedAuthor,
+									Value:  &quotedFP,
+								},
+							}
+						}
+					}
+				}
+			}
+
+			// Fallback if hydration failed - show basic info
+			if view.Embed == nil {
+				slog.Info("quoted post not in database, using fallback")
+				view.Embed = map[string]interface{}{
+					"$type": "app.bsky.embed.record",
+					"record": map[string]interface{}{
+						"uri": quotedURI,
+						"cid": quotedCid,
+					},
+				}
+			}
+		}
+	}
+
+	return view
 }
 
 func (s *Server) handleGetThread(e echo.Context) error {
@@ -411,9 +546,13 @@ func (s *Server) handleGetThread(e echo.Context) error {
 			slog.Error("failed to get counts for post", "post", p.ID, "error", err)
 		}
 
+		// Build post view with hydrated embeds
+		postView := s.buildPostView(ctx, &fp)
+
 		posts = append(posts, postResponse{
 			Uri:        uri,
-			Post:       &fp,
+			Cid:        p.Cid,
+			Post:       postView,
 			AuthorInfo: author,
 			Counts:     counts,
 			ID:         p.ID,
@@ -616,4 +755,52 @@ func (s *Server) handleGetPostReplies(e echo.Context) error {
 		"users": users,
 		"count": len(users),
 	})
+}
+
+type createRecordRequest struct {
+	Collection string         `json:"collection"`
+	Record     map[string]any `json:"record"`
+}
+
+type createRecordResponse struct {
+	Uri string `json:"uri"`
+	Cid string `json:"cid"`
+}
+
+func (s *Server) handleCreateRecord(e echo.Context) error {
+	ctx := e.Request().Context()
+
+	var req createRecordRequest
+	if err := e.Bind(&req); err != nil {
+		return e.JSON(400, map[string]any{
+			"error": "invalid request",
+		})
+	}
+
+	// Marshal the record to JSON for XRPC
+	recordBytes, err := json.Marshal(req.Record)
+	if err != nil {
+		slog.Error("failed to marshal record", "error", err)
+		return e.JSON(400, map[string]any{
+			"error": "invalid record",
+		})
+	}
+
+	// Create the input for the repo.createRecord call
+	input := map[string]any{
+		"repo":       s.mydid,
+		"collection": req.Collection,
+		"record":     json.RawMessage(recordBytes),
+	}
+
+	var resp createRecordResponse
+	if err := s.client.Do(ctx, xrpc.Procedure, "application/json", "com.atproto.repo.createRecord", nil, input, &resp); err != nil {
+		slog.Error("failed to create record", "error", err)
+		return e.JSON(500, map[string]any{
+			"error":   "failed to create record",
+			"details": err.Error(),
+		})
+	}
+
+	return e.JSON(200, resp)
 }

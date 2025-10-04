@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { FollowingFeed } from './components/FollowingFeed';
 import { ProfilePage } from './components/ProfilePage';
 import { PostView } from './components/PostView';
 import { ThreadView } from './components/ThreadView';
+import { PostComposer } from './components/PostComposer';
 import './App.css';
 
 function Navigation() {
@@ -29,6 +30,8 @@ function Navigation() {
 }
 
 function App() {
+  const [showComposer, setShowComposer] = useState(false);
+
   return (
     <Router>
       <div className="app">
@@ -41,6 +44,17 @@ function App() {
             <Route path="/thread" element={<ThreadView />} />
           </Routes>
         </main>
+        <button className="floating-post-button" onClick={() => setShowComposer(true)}>
+          POST
+        </button>
+        {showComposer && (
+          <PostComposer
+            onClose={() => setShowComposer(false)}
+            onPostCreated={() => {
+              window.location.reload();
+            }}
+          />
+        )}
       </div>
     </Router>
   );

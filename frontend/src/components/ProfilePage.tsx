@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { ActorProfile, PostResponse } from '../types';
 import { ApiClient } from '../api';
@@ -11,8 +11,12 @@ export const ProfilePage: React.FC = () => {
   const [profile, setProfile] = useState<ActorProfile | null>(null);
   const [posts, setPosts] = useState<PostResponse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userDid, setUserDid] = useState<string | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const observerTarget = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Scroll to top when navigating to a profile
@@ -24,6 +28,9 @@ export const ProfilePage: React.FC = () => {
       try {
         setLoading(true);
         setError(null);
+        setPosts([]);
+        setCursor(null);
+        setHasMore(true);
 
         // Always try to load posts, regardless of profile status
         const postsPromise = ApiClient.getProfilePosts(account);
@@ -31,7 +38,7 @@ export const ProfilePage: React.FC = () => {
 
         const [profileData, postsData] = await Promise.all([
           profilePromise.catch(() => ({ error: 'Profile not found' })),
-          postsPromise.catch(() => [])
+          postsPromise.catch(() => ({ posts: [], cursor: '' }))
         ]);
 
         if ('error' in profileData) {
@@ -41,11 +48,13 @@ export const ProfilePage: React.FC = () => {
           setProfile(profileData);
         }
 
-        setPosts(Array.isArray(postsData) ? postsData : []);
+        setPosts(postsData.posts || []);
+        setCursor(postsData.cursor || null);
+        setHasMore(!!(postsData.cursor && postsData.posts && postsData.posts.length > 0));
 
         // Extract DID from posts if available (posts include author info with DID)
-        if (Array.isArray(postsData) && postsData.length > 0 && postsData[0].author) {
-          setUserDid(postsData[0].author.did);
+        if (postsData.posts && postsData.posts.length > 0 && postsData.posts[0].author) {
+          setUserDid(postsData.posts[0].author.did);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load data');
@@ -56,6 +65,45 @@ export const ProfilePage: React.FC = () => {
 
     fetchProfile();
   }, [account]);
+
+  const fetchMorePosts = async (cursor: string) => {
+    if (!account || loadingMore || !hasMore) return;
+
+    try {
+      setLoadingMore(true);
+      const data = await ApiClient.getProfilePosts(account, cursor);
+      setPosts(prev => [...prev, ...data.posts]);
+      setCursor(data.cursor || null);
+      setHasMore(!!(data.cursor && data.posts.length > 0));
+    } catch (err) {
+      console.error('Failed to fetch more posts:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
+          if (cursor) {
+            fetchMorePosts(cursor);
+          }
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => {
+      if (observerTarget.current) {
+        observer.unobserve(observerTarget.current);
+      }
+    };
+  }, [hasMore, loadingMore, loading, cursor]);
 
   if (loading) {
     return (
@@ -149,10 +197,14 @@ export const ProfilePage: React.FC = () => {
           {posts.map((post, index) => (
             <PostCard key={post.uri || index} postResponse={post} />
           ))}
-          {posts.length === 0 && (
+          {posts.length === 0 && !loading && (
             <div className="empty-posts">
               <p>No posts yet</p>
             </div>
+          )}
+          {hasMore && <div ref={observerTarget} style={{ height: '20px' }} />}
+          {loadingMore && (
+            <div className="loading-more">Loading more posts...</div>
           )}
         </div>
       </div>

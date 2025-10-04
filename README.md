@@ -12,7 +12,49 @@ It is currently _very_ jank and I really just hacked this together in a day. Mor
 - Docker (optional, for easy PostgreSQL setup)
 - Bluesky account credentials
 
-## Setup
+## Quick Start with Docker Compose
+
+The easiest way to run Konbini is with Docker Compose, which will start PostgreSQL, the backend, and frontend all together.
+
+### Prerequisites
+
+- Docker and Docker Compose installed
+- Your Bluesky DID (find it at https://bsky.app/settings/account)
+
+### Setup
+
+1. Create a `.env` file with your credentials:
+
+```bash
+cp .env.example .env
+# Edit .env and add:
+# - BSKY_HANDLE=your-handle.bsky.social
+# - BSKY_PASSWORD=your-app-password
+```
+
+2. Start all services:
+
+```bash
+docker-compose up -d
+```
+
+3. Wait for the backend to index posts from the firehose (this may take a few minutes for initial indexing)
+
+4. Open your browser to http://localhost:3000
+
+### Stopping the services
+
+```bash
+docker-compose down
+```
+
+To also remove the database volume:
+
+```bash
+docker-compose down -v
+```
+
+## Manual Setup
 
 ### 1. PostgreSQL Database Setup
 

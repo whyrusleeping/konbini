@@ -1,0 +1,135 @@
+.post-composer-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.post-composer {
+  background: white;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 600px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+}
+
+.post-composer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e1e8ed;
+}
+
+.post-composer-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f1419;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  font-size: 32px;
+  color: #536471;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+}
+
+.close-button:hover {
+  background-color: #f7f9fa;
+}
+
+.post-composer-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.post-composer-textarea {
+  width: 100%;
+  min-height: 150px;
+  border: none;
+  outline: none;
+  resize: vertical;
+  font-size: 16px;
+  font-family: inherit;
+  line-height: 1.5;
+  color: #0f1419;
+}
+
+.post-composer-textarea::placeholder {
+  color: #657786;
+}
+
+.post-composer-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.character-count {
+  font-size: 13px;
+  color: #657786;
+}
+
+.send-button {
+  background-color: #1da1f2;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 10px 24px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.send-button:hover:not(:disabled) {
+  background-color: #1a91da;
+}
+
+.send-button:disabled {
+  background-color: #8ed0f9;
+  cursor: not-allowed;
+}
+
+.floating-post-button {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background-color: #1da1f2;
+  color: white;
+  border: none;
+  border-radius: 50px;
+  padding: 16px 32px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(29, 161, 242, 0.4);
+  transition: all 0.2s;
+  z-index: 100;
+}
+
+.floating-post-button:hover {
+  background-color: #1a91da;
+  box-shadow: 0 6px 16px rgba(29, 161, 242, 0.5);
+  transform: translateY(-2px);
+}

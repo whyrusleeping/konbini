@@ -3,6 +3,7 @@ import { FeedPost, PostResponse } from '../types';
 import { formatRelativeTime, getBlobUrl, getPostUrl, getProfileUrl, parseAtUri } from '../utils';
 import { Link } from 'react-router-dom';
 import { EngagementModal } from './EngagementModal';
+import { ApiClient } from '../api';
 import './PostCard.css';
 
 interface PostCardProps {
@@ -12,6 +13,9 @@ interface PostCardProps {
 
 export const PostCard: React.FC<PostCardProps> = ({ postResponse, showThreadIndicator = true }) => {
   const [showEngagementModal, setShowEngagementModal] = useState<'likes' | 'reposts' | 'replies' | null>(null);
+  const [isLiking, setIsLiking] = useState(false);
+  const [localLikeCount, setLocalLikeCount] = useState(postResponse.counts?.likes || 0);
+  const [isLiked, setIsLiked] = useState(!!postResponse.viewerLike);
 
   if (postResponse.missing || !postResponse.post) {
     return (
@@ -25,6 +29,33 @@ export const PostCard: React.FC<PostCardProps> = ({ postResponse, showThreadIndi
   const post = postResponse.post;
   const postUri = parseAtUri(postResponse.uri);
   const authorDid = postUri?.did;
+
+  const handleLike = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (isLiking) return;
+
+    console.log('Liking post:', { uri: postResponse.uri, cid: postResponse.cid });
+
+    if (!postResponse.cid) {
+      console.error('Post CID is missing!');
+      alert('Cannot like post: missing CID');
+      return;
+    }
+
+    setIsLiking(true);
+    try {
+      await ApiClient.likePost(postResponse.uri, postResponse.cid);
+      setLocalLikeCount(prev => prev + 1);
+      setIsLiked(true);
+    } catch (err) {
+      console.error('Failed to like post:', err);
+      alert('Failed to like post. Please try again.');
+    } finally {
+      setIsLiking(false);
+    }
+  };
 
   const renderEmbed = (post: FeedPost) => {
     if (!post.embed) return null;
@@ -61,9 +92,53 @@ export const PostCard: React.FC<PostCardProps> = ({ postResponse, showThreadIndi
         );
 
       case 'app.bsky.embed.record':
+        const quotedRecord = post.embed.record;
+        // Check if we have the full record view with author and value
+        if ('author' in quotedRecord && 'value' in quotedRecord && quotedRecord.author && quotedRecord.value) {
+          const quotedAuthor = quotedRecord.author;
+          const quotedPost = quotedRecord.value;
+
+          return (
+            <div className="post-embed post-embed--record">
+              <div className="quoted-post">
+                <div className="quoted-post-header">
+                  <Link to={getProfileUrl(quotedAuthor.handle)} className="quoted-author-link">
+                    <div className="quoted-author-avatar">
+                      {quotedAuthor.profile?.avatar ? (
+                        <img
+                          src={getBlobUrl(quotedAuthor.profile.avatar, quotedAuthor.did, 'avatar_thumbnail')}
+                          alt="Author avatar"
+                          className="avatar-image-small"
+                        />
+                      ) : (
+                        <div className="avatar-placeholder-small">
+                          {quotedAuthor.handle.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <div className="quoted-author-info">
+                      <span className="quoted-author-name">
+                        {quotedAuthor.profile?.displayName || quotedAuthor.handle}
+                      </span>
+                      <span className="quoted-author-handle">@{quotedAuthor.handle}</span>
+                    </div>
+                  </Link>
+                </div>
+                <div className="quoted-post-content">
+                  <p className="quoted-post-text">{quotedPost.text}</p>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // Fallback if we don't have the quoted post in our database
         return (
           <div className="post-embed post-embed--record">
-            <p>Quoted post: {post.embed.record.uri}</p>
+            <div className="quoted-post-missing">
+              <span className="missing-icon">📝</span>
+              <span className="missing-text">Quoted post not available</span>
+            </div>
           </div>
         );
 
@@ -101,27 +176,24 @@ export const PostCard: React.FC<PostCardProps> = ({ postResponse, showThreadIndi
         </div>
       )}
 
-      <Link to={getPostUrl(postResponse.uri)} className="post-content-link">
-        <div className="post-content">
+      <div className="post-content">
+        <Link to={getPostUrl(postResponse.uri)} className="post-text-link">
           <p className="post-text">{post.text}</p>
-          {renderEmbed(post)}
-        </div>
-      </Link>
+        </Link>
+        {renderEmbed(post)}
+      </div>
 
       {postResponse.counts && (
         <div className="post-engagement">
           <div className="engagement-stats">
             <button
-              className="stat-item stat-item-clickable"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setShowEngagementModal('likes');
-              }}
-              disabled={postResponse.counts.likes === 0}
+              className={`stat-item stat-item-clickable ${isLiked ? 'stat-item-liked' : ''}`}
+              onClick={handleLike}
+              disabled={isLiking}
+              title="Like this post"
             >
-              <span className="stat-icon">♥</span>
-              <span className="stat-count">{postResponse.counts.likes}</span>
+              <span className={`stat-icon ${isLiked ? 'stat-icon-liked' : 'stat-icon-unliked'}`}>♥</span>
+              <span className="stat-count">{localLikeCount}</span>
             </button>
             <button
               className="stat-item stat-item-clickable"

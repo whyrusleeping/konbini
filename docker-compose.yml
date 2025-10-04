@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: konbini-db
+    environment:
+      POSTGRES_DB: konbini
+      POSTGRES_USER: konbini
+      POSTGRES_PASSWORD: konbini_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U konbini"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: konbini-backend
+    environment:
+      - DATABASE_URL=postgres://konbini:konbini_password@postgres:5432/konbini?sslmode=disable
+      - BSKY_HANDLE=${BSKY_HANDLE}
+      - BSKY_PASSWORD=${BSKY_PASSWORD}
+    ports:
+      - "4444:4444"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: konbini-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

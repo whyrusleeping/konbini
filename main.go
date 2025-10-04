@@ -36,7 +36,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/urfave/cli/v2"
 	"github.com/whyrusleeping/market/models"
-	. "github.com/whyrusleeping/market/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
@@ -173,6 +172,12 @@ func main() {
 		}
 		s.backend = pgb
 
+		myrepo, err := s.backend.getOrCreateRepo(ctx, mydid)
+		if err != nil {
+			return fmt.Errorf("failed to get repo record for our own did: %w", err)
+		}
+		s.myrepo = myrepo
+
 		if err := s.backend.loadRelevantDids(); err != nil {
 			return fmt.Errorf("failed to load relevant dids set: %w", err)
 		}
@@ -207,6 +212,7 @@ type Server struct {
 
 	client *xrpc.Client
 	mydid  string
+	myrepo *Repo
 
 	seqLk   sync.Mutex
 	lastSeq int64
@@ -870,6 +876,7 @@ func (b *PostgresBackend) HandleCreatePost(ctx context.Context, repo *Repo, rkey
 		Author:  repo.ID,
 		Rkey:    rkey,
 		Raw:     recb,
+		Cid:     cc.String(),
 	}
 
 	if rec.Reply != nil && rec.Reply.Parent != nil {
@@ -1022,7 +1029,7 @@ func (b *PostgresBackend) HandleCreateLike(ctx context.Context, repo *Repo, rkey
 		return fmt.Errorf("getting like subject: %w", err)
 	}
 
-	if _, err := b.pgx.Exec(ctx, `INSERT INTO "likes" ("created","indexed","author","rkey","subject") VALUES ($1, $2, $3, $4, $5)`, created.Time(), time.Now(), repo.ID, rkey, pid); err != nil {
+	if _, err := b.pgx.Exec(ctx, `INSERT INTO "likes" ("created","indexed","author","rkey","subject","cid") VALUES ($1, $2, $3, $4, $5, $6)`, created.Time(), time.Now(), repo.ID, rkey, pid, cc.String()); err != nil {
 		pgErr, ok := err.(*pgconn.PgError)
 		if ok && pgErr.Code == "23505" {
 			return nil

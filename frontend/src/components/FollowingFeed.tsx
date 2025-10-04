@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { PostResponse } from '../types';
-import { ApiClient } from '../api';
-import { PostCard } from './PostCard';
-import './FollowingFeed.css';
+import React, { useState, useEffect, useRef } from "react";
+import { PostResponse } from "../types";
+import { ApiClient } from "../api";
+import { PostCard } from "./PostCard";
+import "./FollowingFeed.css";
 
 export const FollowingFeed: React.FC = () => {
   const [posts, setPosts] = useState<PostResponse[]>([]);
@@ -21,10 +21,12 @@ export const FollowingFeed: React.FC = () => {
         setLoading(true);
       }
 
-      const feedData = await ApiClient.getFollowingFeed(cursorToUse || undefined);
+      const feedData = await ApiClient.getFollowingFeed(
+        cursorToUse || undefined,
+      );
 
       if (cursorToUse) {
-        setPosts(prev => [...prev, ...feedData.posts]);
+        setPosts((prev) => [...prev, ...feedData.posts]);
       } else {
         setPosts(feedData.posts);
       }
@@ -32,7 +34,7 @@ export const FollowingFeed: React.FC = () => {
       setCursor(feedData.cursor || null);
       setHasMore(!!feedData.cursor && feedData.posts.length > 0);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load feed');
+      setError(err instanceof Error ? err.message : "Failed to load feed");
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -53,7 +55,7 @@ export const FollowingFeed: React.FC = () => {
           }
         }
       },
-      { threshold: 0.1 }
+      { threshold: 0.1 },
     );
 
     const currentTarget = observerTarget.current;
@@ -71,9 +73,6 @@ export const FollowingFeed: React.FC = () => {
   if (loading) {
     return (
       <div className="following-feed">
-        <div className="feed-header">
-          <h1>Following</h1>
-        </div>
         <div className="loading">Loading your feed...</div>
       </div>
     );
@@ -82,9 +81,6 @@ export const FollowingFeed: React.FC = () => {
   if (error && posts.length === 0) {
     return (
       <div className="following-feed">
-        <div className="feed-header">
-          <h1>Following</h1>
-        </div>
         <div className="error">Error: {error}</div>
       </div>
     );
@@ -92,10 +88,6 @@ export const FollowingFeed: React.FC = () => {
 
   return (
     <div className="following-feed">
-      <div className="feed-header">
-        <h1>Following</h1>
-        <p>{posts.length} posts loaded</p>
-      </div>
       <div className="feed-content">
         {posts.map((post, index) => (
           <PostCard key={post.uri || index} postResponse={post} />
@@ -107,7 +99,9 @@ export const FollowingFeed: React.FC = () => {
         )}
         {hasMore && (
           <div ref={observerTarget} className="load-more-trigger">
-            {loadingMore && <div className="loading-more">Loading more posts...</div>}
+            {loadingMore && (
+              <div className="loading-more">Loading more posts...</div>
+            )}
           </div>
         )}
         {!hasMore && posts.length > 0 && (

@@ -24,8 +24,8 @@ export const PostView: React.FC = () => {
         setError(null);
 
         // First, get all posts from the profile to find this specific post
-        const profilePosts = await ApiClient.getProfilePosts(account);
-        const targetPost = profilePosts.find(p => {
+        const profilePostsData = await ApiClient.getProfilePosts(account);
+        const targetPost = profilePostsData.posts.find(p => {
           const uriParts = p.uri.split('/');
           return uriParts[uriParts.length - 1] === rkey;
         });

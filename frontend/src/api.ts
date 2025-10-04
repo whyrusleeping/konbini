@@ -22,8 +22,11 @@ export class ApiClient {
     return response.json();
   }
 
-  static async getProfilePosts(account: string): Promise<PostResponse[]> {
-    const response = await fetch(`${API_BASE_URL}/profile/${encodeURIComponent(account)}/posts`);
+  static async getProfilePosts(account: string, cursor?: string): Promise<FeedResponse> {
+    const url = cursor
+      ? `${API_BASE_URL}/profile/${encodeURIComponent(account)}/posts?cursor=${encodeURIComponent(cursor)}`
+      : `${API_BASE_URL}/profile/${encodeURIComponent(account)}/posts`;
+    const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Failed to fetch profile posts: ${response.statusText}`);
     }
@@ -68,5 +71,41 @@ export class ApiClient {
       throw new Error(`Failed to fetch replies: ${response.statusText}`);
     }
     return response.json();
+  }
+
+  static async createRecord(collection: string, record: Record<string, any>): Promise<{uri: string, cid: string}> {
+    const response = await fetch(`${API_BASE_URL}/createRecord`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        collection,
+        record,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to create record: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  static async likePost(postUri: string, postCid: string): Promise<{uri: string, cid: string}> {
+    return this.createRecord('app.bsky.feed.like', {
+      $type: 'app.bsky.feed.like',
+      subject: {
+        uri: postUri,
+        cid: postCid,
+      },
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  static async createPost(text: string): Promise<{uri: string, cid: string}> {
+    return this.createRecord('app.bsky.feed.post', {
+      $type: 'app.bsky.feed.post',
+      text: text,
+      createdAt: new Date().toISOString(),
+    });
   }
 }

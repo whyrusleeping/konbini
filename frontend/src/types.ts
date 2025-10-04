@@ -47,9 +47,18 @@ export interface EmbedExternal {
   };
 }
 
+export interface EmbedRecordView {
+  $type: string;
+  uri: string;
+  cid: string;
+  author?: AuthorInfo;
+  value?: FeedPost;
+  indexedAt?: string;
+}
+
 export interface EmbedRecord {
   $type: "app.bsky.embed.record";
-  record: {
+  record: EmbedRecordView | {
     cid: string;
     uri: string;
   };
@@ -81,6 +90,7 @@ export interface PostCounts {
 export interface PostResponse {
   missing: boolean;
   uri: string;
+  cid: string;
   post?: FeedPost;
   author?: AuthorInfo;
   counts?: PostCounts;
@@ -88,6 +98,7 @@ export interface PostResponse {
   replyTo?: number;
   replyToUsr?: number;
   inThread?: number;
+  viewerLike?: string;
 }
 
 export interface ThreadResponse {

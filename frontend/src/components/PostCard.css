@@ -87,13 +87,13 @@
   text-overflow: ellipsis;
 }
 
-.post-content-link {
+.post-text-link {
   display: block;
   text-decoration: none;
   color: inherit;
 }
 
-.post-content-link:hover {
+.post-text-link:hover {
   text-decoration: none;
   color: inherit;
 }
@@ -178,12 +178,116 @@
 }
 
 .post-embed--record {
+  border: 1px solid #e1e8ed;
+  border-radius: 12px;
+  overflow: hidden;
+  background-color: white;
+}
+
+.quoted-post {
   padding: 12px;
   background-color: #f7f9fa;
-  border: 1px solid #e1e8ed;
-  border-radius: 8px;
+  transition: background-color 0.2s;
+}
+
+.quoted-post:hover {
+  background-color: #eef3f7;
+}
+
+.quoted-post-header {
+  margin-bottom: 8px;
+}
+
+.quoted-author-link {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  color: inherit;
+}
+
+.quoted-author-link:hover {
+  text-decoration: none;
+}
+
+.quoted-author-avatar {
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.avatar-image-small {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.avatar-placeholder-small {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: #1da1f2;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 10px;
+}
+
+.quoted-author-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.quoted-author-name {
+  font-weight: 600;
+  color: #0f1419;
   font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quoted-author-handle {
   color: #536471;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quoted-post-content {
+  margin-top: 4px;
+}
+
+.quoted-post-text {
+  margin: 0;
+  font-size: 14px;
+  color: #0f1419;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.quoted-post-missing {
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #657786;
+  font-size: 14px;
+  font-style: italic;
+}
+
+.missing-icon {
+  font-size: 16px;
+  opacity: 0.7;
+}
+
+.missing-text {
+  opacity: 0.8;
 }
 
 .post-meta {
@@ -261,6 +365,22 @@
 .stat-icon {
   font-size: 14px;
   line-height: 1;
+}
+
+.stat-icon-unliked {
+  color: #657786;
+}
+
+.stat-icon-liked {
+  color: #e0245e;
+}
+
+.stat-item-liked:hover:not(:disabled) {
+  background-color: rgba(224, 36, 94, 0.1);
+}
+
+.stat-item-liked:hover:not(:disabled) .stat-icon-liked {
+  color: #c91a4f;
 }
 
 .stat-count {
