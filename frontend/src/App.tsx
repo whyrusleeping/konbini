@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react
 import { FollowingFeed } from './components/FollowingFeed';
 import { ProfilePage } from './components/ProfilePage';
 import { PostView } from './components/PostView';
+import { ThreadView } from './components/ThreadView';
 import './App.css';
 
 function Navigation() {
@@ -37,6 +38,7 @@ function App() {
             <Route path="/" element={<FollowingFeed />} />
             <Route path="/profile/:account" element={<ProfilePage />} />
             <Route path="/profile/:account/post/:rkey" element={<PostView />} />
+            <Route path="/thread" element={<ThreadView />} />
           </Routes>
         </main>
       </div>

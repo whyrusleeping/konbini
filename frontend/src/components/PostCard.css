@@ -233,6 +233,31 @@
   color: #1da1f2;
 }
 
+.stat-item-clickable {
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  margin: -4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.stat-item-clickable:hover:not(:disabled) {
+  background-color: rgba(29, 161, 242, 0.1);
+  color: #1da1f2;
+}
+
+.stat-item-clickable:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.stat-item-clickable:disabled:hover {
+  background: none;
+  color: #657786;
+}
+
 .stat-icon {
   font-size: 14px;
   line-height: 1;
@@ -245,4 +270,46 @@
 
 .stat-count:empty::before {
   content: "0";
+}
+
+.view-thread-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #1da1f2;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.view-thread-link:hover {
+  color: #0c85d0;
+  text-decoration: underline;
+}
+
+.post-reply-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  margin-top: 8px;
+  border-top: 1px solid #f0f0f0;
+  font-size: 13px;
+}
+
+.reply-indicator {
+  color: #657786;
+  font-style: italic;
+}
+
+.view-full-thread {
+  color: #1da1f2;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.view-full-thread:hover {
+  color: #0c85d0;
+  text-decoration: underline;
 }

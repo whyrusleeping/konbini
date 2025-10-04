@@ -1,14 +1,18 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FeedPost, PostResponse } from '../types';
 import { formatRelativeTime, getBlobUrl, getPostUrl, getProfileUrl, parseAtUri } from '../utils';
 import { Link } from 'react-router-dom';
+import { EngagementModal } from './EngagementModal';
 import './PostCard.css';
 
 interface PostCardProps {
   postResponse: PostResponse;
+  showThreadIndicator?: boolean;
 }
 
-export const PostCard: React.FC<PostCardProps> = ({ postResponse }) => {
+export const PostCard: React.FC<PostCardProps> = ({ postResponse, showThreadIndicator = true }) => {
+  const [showEngagementModal, setShowEngagementModal] = useState<'likes' | 'reposts' | 'replies' | null>(null);
+
   if (postResponse.missing || !postResponse.post) {
     return (
       <div className="post-card post-card--missing">
@@ -72,7 +76,7 @@ export const PostCard: React.FC<PostCardProps> = ({ postResponse }) => {
     <div className="post-card">
       {postResponse.author && (
         <div className="post-author">
-          <Link to={getProfileUrl(postResponse.author.did)} className="author-link">
+          <Link to={getProfileUrl(postResponse.author.handle)} className="author-link">
             <div className="author-avatar">
               {postResponse.author.profile?.avatar ? (
                 <img
@@ -102,32 +106,57 @@ export const PostCard: React.FC<PostCardProps> = ({ postResponse }) => {
           <p className="post-text">{post.text}</p>
           {renderEmbed(post)}
         </div>
-        <div className="post-meta">
-          {post.langs && post.langs.length > 0 && (
-            <span className="post-langs">
-              {post.langs.join(', ')}
-            </span>
-          )}
-        </div>
       </Link>
 
       {postResponse.counts && (
         <div className="post-engagement">
           <div className="engagement-stats">
-            <span className="stat-item">
+            <button
+              className="stat-item stat-item-clickable"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowEngagementModal('likes');
+              }}
+              disabled={postResponse.counts.likes === 0}
+            >
               <span className="stat-icon">♥</span>
               <span className="stat-count">{postResponse.counts.likes}</span>
-            </span>
-            <span className="stat-item">
+            </button>
+            <button
+              className="stat-item stat-item-clickable"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowEngagementModal('reposts');
+              }}
+              disabled={postResponse.counts.reposts === 0}
+            >
               <span className="stat-icon">🔄</span>
               <span className="stat-count">{postResponse.counts.reposts}</span>
-            </span>
-            <span className="stat-item">
+            </button>
+            <button
+              className="stat-item stat-item-clickable"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowEngagementModal('replies');
+              }}
+              disabled={postResponse.counts.replies === 0}
+            >
               <span className="stat-icon">💬</span>
               <span className="stat-count">{postResponse.counts.replies}</span>
-            </span>
+            </button>
           </div>
         </div>
+      )}
+
+      {showEngagementModal && (
+        <EngagementModal
+          postId={postResponse.id}
+          type={showEngagementModal}
+          onClose={() => setShowEngagementModal(null)}
+        />
       )}
     </div>
   );

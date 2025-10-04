@@ -1,26 +1,55 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { FeedPost } from '../types';
+import { PostResponse } from '../types';
 import { ApiClient } from '../api';
-import { formatDate, getBlobUrl, parseAtUri, getProfileUrl } from '../utils';
+import { PostCard } from './PostCard';
 import './PostView.css';
 
 export const PostView: React.FC = () => {
   const { account, rkey } = useParams<{ account: string; rkey: string }>();
-  const [post, setPost] = useState<FeedPost | null>(null);
+  const [mainPost, setMainPost] = useState<PostResponse | null>(null);
+  const [threadPosts, setThreadPosts] = useState<PostResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchPost = async () => {
+    // Scroll to top when navigating to a post
+    window.scrollTo(0, 0);
+
+    const fetchPostAndThread = async () => {
       if (!account || !rkey) return;
 
       try {
         setLoading(true);
         setError(null);
 
-        const postData = await ApiClient.getPost(account, rkey);
-        setPost(postData);
+        // First, get all posts from the profile to find this specific post
+        const profilePosts = await ApiClient.getProfilePosts(account);
+        const targetPost = profilePosts.find(p => {
+          const uriParts = p.uri.split('/');
+          return uriParts[uriParts.length - 1] === rkey;
+        });
+
+        if (!targetPost) {
+          setError('Post not found');
+          setLoading(false);
+          return;
+        }
+
+        setMainPost(targetPost);
+
+        // If this post has replies or is part of a thread, fetch the thread
+        if (targetPost.counts && targetPost.counts.replies > 0) {
+          try {
+            const threadData = await ApiClient.getThread(targetPost.id);
+            // Filter out the main post and only show replies
+            const replies = threadData.posts.filter(p => p.id !== targetPost.id);
+            setThreadPosts(replies);
+          } catch (err) {
+            console.error('Failed to load thread:', err);
+            // Don't fail if thread loading fails
+          }
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load post');
       } finally {
@@ -28,75 +57,24 @@ export const PostView: React.FC = () => {
       }
     };
 
-    fetchPost();
+    fetchPostAndThread();
   }, [account, rkey]);
-
-  const renderEmbed = (post: FeedPost) => {
-    if (!post.embed) return null;
-
-    switch (post.embed.$type) {
-      case 'app.bsky.embed.images':
-        return (
-          <div className="post-embed post-embed--images">
-            {post.embed.images.map((img, idx) => (
-              <div key={idx} className="image-container">
-                <img
-                  src={getBlobUrl(img.image, account, 'feed_thumbnail')}
-                  alt={img.alt}
-                  className="post-image"
-                />
-                {img.alt && <p className="image-alt">{img.alt}</p>}
-              </div>
-            ))}
-          </div>
-        );
-
-      case 'app.bsky.embed.external':
-        return (
-          <div className="post-embed post-embed--external">
-            <a href={post.embed.external.uri} target="_blank" rel="noopener noreferrer" className="external-link">
-              {post.embed.external.thumb && (
-                <img src={getBlobUrl(post.embed.external.thumb, account, 'feed_thumbnail')} alt="" className="external-thumb" />
-              )}
-              <div className="external-content">
-                <h3>{post.embed.external.title}</h3>
-                <p>{post.embed.external.description}</p>
-                <small>{post.embed.external.uri}</small>
-              </div>
-            </a>
-          </div>
-        );
-
-      case 'app.bsky.embed.record':
-        const quoted = parseAtUri(post.embed.record.uri);
-        return (
-          <div className="post-embed post-embed--record">
-            <div className="quoted-post">
-              <p>Quoted post:</p>
-              <Link to={`/profile/${quoted?.did}/post/${quoted?.rkey}`} className="quoted-link">
-                {post.embed.record.uri}
-              </Link>
-            </div>
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
 
   if (loading) {
     return (
       <div className="post-view">
+        <div className="post-view-header">
+          <Link to="/" className="back-link">← Back</Link>
+        </div>
         <div className="loading">Loading post...</div>
       </div>
     );
   }
 
-  if (error || !post) {
+  if (error || !mainPost) {
     return (
       <div className="post-view">
-        <div className="post-header">
+        <div className="post-view-header">
           <Link to="/" className="back-link">← Back</Link>
         </div>
         <div className="error">
@@ -108,37 +86,28 @@ export const PostView: React.FC = () => {
 
   return (
     <div className="post-view">
-      <div className="post-header">
+      <div className="post-view-header">
         <Link to="/" className="back-link">← Back</Link>
         <h1>Post</h1>
       </div>
 
-      <div className="post-content">
-        <div className="post-author">
-          <Link to={getProfileUrl(account!)} className="author-link">
-            @{account}
-          </Link>
+      <div className="post-view-content">
+        <div className="main-post">
+          <PostCard postResponse={mainPost} showThreadIndicator={false} />
         </div>
 
-        <div className="post-main">
-          <p className="post-text">{post.text}</p>
-          {renderEmbed(post)}
-        </div>
-
-        <div className="post-meta">
-          <time className="post-time" dateTime={post.createdAt}>
-            {formatDate(post.createdAt)}
-          </time>
-          {post.langs && post.langs.length > 0 && (
-            <div className="post-langs">
-              Languages: {post.langs.join(', ')}
+        {threadPosts.length > 0 && (
+          <div className="thread-replies">
+            <div className="replies-header">
+              <h2>Replies</h2>
             </div>
-          )}
-        </div>
-
-        <div className="post-uri">
-          <small>at://{account}/app.bsky.feed.post/{rkey}</small>
-        </div>
+            {threadPosts.map((post, index) => (
+              <div key={post.uri || index} className="thread-reply">
+                <PostCard postResponse={post} showThreadIndicator={false} />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

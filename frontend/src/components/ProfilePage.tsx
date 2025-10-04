@@ -12,8 +12,12 @@ export const ProfilePage: React.FC = () => {
   const [posts, setPosts] = useState<PostResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [userDid, setUserDid] = useState<string | null>(null);
 
   useEffect(() => {
+    // Scroll to top when navigating to a profile
+    window.scrollTo(0, 0);
+
     const fetchProfile = async () => {
       if (!account) return;
 
@@ -38,6 +42,11 @@ export const ProfilePage: React.FC = () => {
         }
 
         setPosts(Array.isArray(postsData) ? postsData : []);
+
+        // Extract DID from posts if available (posts include author info with DID)
+        if (Array.isArray(postsData) && postsData.length > 0 && postsData[0].author) {
+          setUserDid(postsData[0].author.did);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load data');
       } finally {
@@ -66,20 +75,22 @@ export const ProfilePage: React.FC = () => {
     );
   }
 
+  const hasBanner = !!(profile?.banner && userDid);
+
   return (
     <div className="profile-page">
-      <div className="profile-header">
-        {profile && profile.banner && (
+      <div className={`profile-header ${!hasBanner ? 'profile-header--no-banner' : ''}`}>
+        {hasBanner && profile.banner && (
           <div className="profile-banner">
-            <img src={getBlobUrl(profile.banner, account, 'feed_thumbnail')} alt="Profile banner" />
+            <img src={getBlobUrl(profile.banner, userDid!, 'feed_thumbnail')} alt="Profile banner" />
           </div>
         )}
 
         <div className="profile-info">
           <div className="profile-avatar-section">
-            {profile && profile.avatar ? (
+            {profile?.avatar && userDid ? (
               <div className="profile-avatar">
-                <img src={getBlobUrl(profile.avatar, account, 'avatar_thumbnail')} alt="Profile avatar" />
+                <img src={getBlobUrl(profile.avatar, userDid!, 'avatar_thumbnail')} alt="Profile avatar" />
               </div>
             ) : (
               <div className="profile-avatar profile-avatar--placeholder">

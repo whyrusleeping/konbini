@@ -8,6 +8,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	_ "net/http/pprof"
 	"net/url"
 	"os"
 	"runtime"
@@ -47,24 +48,6 @@ var handleOpHist = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Buckets: prometheus.ExponentialBuckets(1, 2, 15),
 }, []string{"op", "collection"})
 
-var doEmbedHist = promauto.NewHistogramVec(prometheus.HistogramOpts{
-	Name:    "do_embed_hist",
-	Help:    "A histogram of embedding computation time",
-	Buckets: prometheus.ExponentialBucketsRange(0.001, 30, 20),
-}, []string{"model"})
-
-var embeddingTimeHist = promauto.NewHistogramVec(prometheus.HistogramOpts{
-	Name:    "embed_timing",
-	Help:    "A histogram of embedding computation time",
-	Buckets: prometheus.ExponentialBucketsRange(0.001, 30, 20),
-}, []string{"model", "phase", "host"})
-
-var refreshEmbeddingHist = promauto.NewHistogramVec(prometheus.HistogramOpts{
-	Name:    "refresh_embed_timing",
-	Help:    "A histogram of embedding refresh times",
-	Buckets: prometheus.ExponentialBucketsRange(0.001, 30, 20),
-}, []string{"host"})
-
 var firehoseCursorGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 	Name: "firehose_cursor",
 }, []string{"stage"})
@@ -100,8 +83,6 @@ func main() {
 			Colorful:                  true,
 		})
 
-		//db.AutoMigrate(cursorRecord{})
-		//db.AutoMigrate(MarketConfig{})
 		db.AutoMigrate(Repo{})
 		db.AutoMigrate(Post{})
 		db.AutoMigrate(Follow{})
@@ -177,6 +158,8 @@ func main() {
 			mydid:  mydid,
 			client: cc,
 			dir:    dir,
+
+			missingProfiles: make(chan string, 1024),
 		}
 
 		pgb := &PostgresBackend{
@@ -200,6 +183,12 @@ func main() {
 			}
 		}()
 
+		go func() {
+			http.ListenAndServe(":4445", nil)
+		}()
+
+		go s.missingProfileFetcher()
+
 		seqno, err := loadLastSeq("sequence.txt")
 		if err != nil {
 			fmt.Println("failed to load sequence number, starting over", err)
@@ -221,6 +210,14 @@ type Server struct {
 
 	seqLk   sync.Mutex
 	lastSeq int64
+
+	mpLk            sync.Mutex
+	missingProfiles chan string
+}
+
+func (s *Server) getXrpcClient() (*xrpc.Client, error) {
+	// TODO: handle refreshing the token periodically
+	return s.client, nil
 }
 
 func (s *Server) startLiveTail(ctx context.Context, curs int, parWorkers, maxQ int) error {

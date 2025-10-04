@@ -84,6 +84,15 @@ export interface PostResponse {
   post?: FeedPost;
   author?: AuthorInfo;
   counts?: PostCounts;
+  id: number;
+  replyTo?: number;
+  replyToUsr?: number;
+  inThread?: number;
+}
+
+export interface ThreadResponse {
+  posts: PostResponse[];
+  rootPostId: number;
 }
 
 export interface ActorProfile {
@@ -101,4 +110,21 @@ export interface ActorProfile {
 
 export interface ApiError {
   error: string;
+}
+
+export interface EngagementUser {
+  handle: string;
+  did: string;
+  profile?: ActorProfile;
+  time: string;
+}
+
+export interface EngagementResponse {
+  users: EngagementUser[];
+  count: number;
+}
+
+export interface FeedResponse {
+  posts: PostResponse[];
+  cursor: string;
 }

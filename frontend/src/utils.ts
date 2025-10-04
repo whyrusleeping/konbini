@@ -23,6 +23,14 @@ export function formatRelativeTime(dateString: string): string {
 
 export function getBlobUrl(blob: BlobRef, did?: string, type: 'avatar_thumbnail' | 'feed_thumbnail' = 'feed_thumbnail'): string {
   // Use Bluesky CDN format: https://cdn.bsky.app/img/{type}/plain/{did}/{cid}@jpeg
+
+  // Handle cases where blob or blob.ref is undefined/malformed
+  if (!blob || !blob.ref || !blob.ref.$link) {
+    console.warn('Invalid blob reference:', blob);
+    // Return a placeholder or empty data URL
+    return 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3C/svg%3E';
+  }
+
   const cid = blob.ref.$link;
   const didParam = did || 'unknown';
   return `https://cdn.bsky.app/img/${type}/plain/${didParam}/${cid}@jpeg`;

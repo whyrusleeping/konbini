@@ -54,3 +54,38 @@
   margin: 0;
   font-size: 16px;
 }
+
+.load-more-trigger {
+  padding: 20px;
+  text-align: center;
+  min-height: 60px;
+}
+
+.loading-more {
+  color: #536471;
+  font-size: 14px;
+  padding: 20px;
+  text-align: center;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.end-of-feed {
+  text-align: center;
+  padding: 40px 20px;
+  color: #536471;
+  font-style: italic;
+}
+
+.end-of-feed p {
+  margin: 0;
+  font-size: 14px;
+}
