@@ -159,6 +159,7 @@ func main() {
 			dir:    dir,
 
 			missingProfiles: make(chan string, 1024),
+			missingPosts:    make(chan string, 1024),
 		}
 
 		pgb := &PostgresBackend{
@@ -193,6 +194,7 @@ func main() {
 		}()
 
 		go s.missingProfileFetcher()
+		go s.missingPostFetcher()
 
 		seqno, err := loadLastSeq("sequence.txt")
 		if err != nil {
@@ -219,6 +221,7 @@ type Server struct {
 
 	mpLk            sync.Mutex
 	missingProfiles chan string
+	missingPosts    chan string
 }
 
 func (s *Server) getXrpcClient() (*xrpc.Client, error) {

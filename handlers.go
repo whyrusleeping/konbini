@@ -351,6 +351,7 @@ func (s *Server) hydratePosts(ctx context.Context, dbposts []models.Post) []post
 
 			uri := fmt.Sprintf("at://%s/app.bsky.feed.post/%s", r.Did, p.Rkey)
 			if len(p.Raw) == 0 || p.NotFound {
+				s.addMissingPost(ctx, uri)
 				posts[ix] = postResponse{
 					Uri:     uri,
 					Missing: true,
