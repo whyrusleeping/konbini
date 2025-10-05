@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/whyrusleeping/market/models"
+	"gorm.io/gorm"
 )
 
 type Repo = models.Repo
@@ -29,4 +30,13 @@ type Like struct {
 	Rkey    string `gorm:"uniqueIndex:idx_likes_rkeyauthor"`
 	Subject uint
 	Cid     string
+}
+
+type Notification struct {
+	gorm.Model
+	For uint
+
+	Author uint
+	Source string
+	Kind   string
 }

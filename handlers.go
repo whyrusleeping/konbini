@@ -26,6 +26,7 @@ func (s *Server) runApiServer() error {
 
 	views := e.Group("/api")
 	views.GET("/me", s.handleGetMe)
+	views.GET("/notifications", s.handleGetNotifications)
 	views.GET("/profile/:account/post/:rkey", s.handleGetPost)
 	views.GET("/profile/:account", s.handleGetProfileView)
 	views.GET("/profile/:account/posts", s.handleGetProfilePosts)
@@ -635,6 +636,8 @@ func (s *Server) handleGetPostLikes(e echo.Context) error {
 			if err := p.UnmarshalCBOR(bytes.NewReader(profile.Raw)); err == nil {
 				prof = &p
 			}
+		} else {
+			s.addMissingProfile(ctx, r.Did)
 		}
 
 		users = append(users, engagementUser{
@@ -693,6 +696,8 @@ func (s *Server) handleGetPostReposts(e echo.Context) error {
 			if err := p.UnmarshalCBOR(bytes.NewReader(profile.Raw)); err == nil {
 				prof = &p
 			}
+		} else {
+			s.addMissingProfile(ctx, r.Did)
 		}
 
 		users = append(users, engagementUser{
@@ -759,6 +764,8 @@ func (s *Server) handleGetPostReplies(e echo.Context) error {
 			if err := p.UnmarshalCBOR(bytes.NewReader(profile.Raw)); err == nil {
 				prof = &p
 			}
+		} else {
+			s.addMissingProfile(ctx, r.Did)
 		}
 
 		users = append(users, engagementUser{
@@ -821,4 +828,107 @@ func (s *Server) handleCreateRecord(e echo.Context) error {
 	}
 
 	return e.JSON(200, resp)
+}
+
+type notificationResponse struct {
+	ID         uint        `json:"id"`
+	Kind       string      `json:"kind"`
+	Author     *authorInfo `json:"author"`
+	Source     string      `json:"source"`
+	SourcePost *struct {
+		Text string `json:"text"`
+		Uri  string `json:"uri"`
+	} `json:"sourcePost,omitempty"`
+	CreatedAt string `json:"createdAt"`
+}
+
+func (s *Server) handleGetNotifications(e echo.Context) error {
+	ctx := e.Request().Context()
+
+	// Get cursor from query parameter (notification ID)
+	cursor := e.QueryParam("cursor")
+	limit := 50
+
+	var cursorID uint
+	if cursor != "" {
+		if _, err := fmt.Sscanf(cursor, "%d", &cursorID); err != nil {
+			return e.JSON(400, map[string]any{
+				"error": "invalid cursor",
+			})
+		}
+	}
+
+	// Query notifications
+	var notifications []Notification
+	query := `SELECT * FROM notifications WHERE "for" = ?`
+	if cursorID > 0 {
+		query += ` AND id < ?`
+		if err := s.backend.db.Raw(query+" ORDER BY created_at DESC LIMIT ?", s.myrepo.ID, cursorID, limit).Scan(&notifications).Error; err != nil {
+			return err
+		}
+	} else {
+		if err := s.backend.db.Raw(query+" ORDER BY created_at DESC LIMIT ?", s.myrepo.ID, limit).Scan(&notifications).Error; err != nil {
+			return err
+		}
+	}
+
+	// Hydrate notifications
+	results := []notificationResponse{}
+	for _, notif := range notifications {
+		// Get author info
+		author, err := s.backend.getRepoByID(ctx, notif.Author)
+		if err != nil {
+			slog.Error("failed to get repo for notification author", "error", err)
+			continue
+		}
+
+		authorInfo, err := s.getAuthorInfo(ctx, author)
+		if err != nil {
+			slog.Error("failed to get author info", "error", err)
+			continue
+		}
+
+		resp := notificationResponse{
+			ID:        notif.ID,
+			Kind:      notif.Kind,
+			Author:    authorInfo,
+			Source:    notif.Source,
+			CreatedAt: notif.CreatedAt.Format(time.RFC3339),
+		}
+
+		// Try to get source post preview for reply/mention notifications
+		if notif.Kind == NotifKindReply || notif.Kind == NotifKindMention {
+			// Parse URI to get post
+			p, err := s.backend.getPostByUri(ctx, notif.Source, "*")
+			if err == nil && p.Raw != nil && len(p.Raw) > 0 {
+				var fp bsky.FeedPost
+				if err := fp.UnmarshalCBOR(bytes.NewReader(p.Raw)); err == nil {
+					preview := fp.Text
+					if len(preview) > 100 {
+						preview = preview[:100] + "..."
+					}
+					resp.SourcePost = &struct {
+						Text string `json:"text"`
+						Uri  string `json:"uri"`
+					}{
+						Text: preview,
+						Uri:  notif.Source,
+					}
+				}
+			}
+		}
+
+		results = append(results, resp)
+	}
+
+	// Generate next cursor
+	var nextCursor string
+	if len(notifications) > 0 {
+		nextCursor = fmt.Sprintf("%d", notifications[len(notifications)-1].ID)
+	}
+
+	return e.JSON(200, map[string]any{
+		"notifications": results,
+		"cursor":        nextCursor,
+	})
 }

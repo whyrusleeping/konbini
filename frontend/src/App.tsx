@@ -5,6 +5,7 @@ import { ProfilePage } from './components/ProfilePage';
 import { PostView } from './components/PostView';
 import { ThreadView } from './components/ThreadView';
 import { PostComposer } from './components/PostComposer';
+import { NotificationsPage } from './components/NotificationsPage';
 import { ApiClient } from './api';
 import './App.css';
 
@@ -33,6 +34,12 @@ function Navigation() {
           >
             Following
           </Link>
+          <Link
+            to="/notifications"
+            className={`nav-link ${location.pathname === '/notifications' ? 'active' : ''}`}
+          >
+            Notifications
+          </Link>
           {myHandle && (
             <Link
               to={`/profile/${myHandle}`}
@@ -57,6 +64,7 @@ function App() {
         <main className="app-main">
           <Routes>
             <Route path="/" element={<FollowingFeed />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/profile/:account" element={<ProfilePage />} />
             <Route path="/profile/:account/post/:rkey" element={<PostView />} />
             <Route path="/thread" element={<ThreadView />} />

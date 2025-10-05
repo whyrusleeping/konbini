@@ -139,3 +139,20 @@ export interface FeedResponse {
   posts: PostResponse[];
   cursor: string;
 }
+
+export interface Notification {
+  id: number;
+  kind: 'reply' | 'like' | 'mention' | 'repost';
+  author: AuthorInfo;
+  source: string;
+  sourcePost?: {
+    text: string;
+    uri: string;
+  };
+  createdAt: string;
+}
+
+export interface NotificationsResponse {
+  notifications: Notification[];
+  cursor: string;
+}

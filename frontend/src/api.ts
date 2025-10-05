@@ -1,4 +1,4 @@
-import { PostResponse, ActorProfile, ApiError, ThreadResponse, EngagementResponse, FeedResponse } from './types';
+import { PostResponse, ActorProfile, ApiError, ThreadResponse, EngagementResponse, FeedResponse, NotificationsResponse } from './types';
 
 const API_BASE_URL = 'http://localhost:4444/api';
 
@@ -115,5 +115,16 @@ export class ApiClient {
       text: text,
       createdAt: new Date().toISOString(),
     });
+  }
+
+  static async getNotifications(cursor?: string): Promise<NotificationsResponse> {
+    const url = cursor
+      ? `${API_BASE_URL}/notifications?cursor=${encodeURIComponent(cursor)}`
+      : `${API_BASE_URL}/notifications`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch notifications: ${response.statusText}`);
+    }
+    return response.json();
   }
 }
