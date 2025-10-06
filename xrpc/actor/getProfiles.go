@@ -38,7 +38,7 @@ func HandleGetProfiles(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator
 		}
 
 		// Hydrate actor info
-		actorInfo, err := hydrator.HydrateActor(ctx, did)
+		actorInfo, err := hydrator.HydrateActorDetailed(ctx, did)
 		if err != nil {
 			// Skip actors that can't be hydrated
 			continue
@@ -58,7 +58,7 @@ func HandleGetProfiles(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator
 				(SELECT COUNT(*) FROM posts WHERE author = (SELECT id FROM repos WHERE did = ?)) as posts
 		`, did, did, did).Scan(&c)
 
-		profiles = append(profiles, views.ProfileViewDetailed(actorInfo, c.Followers, c.Follows, c.Posts))
+		profiles = append(profiles, views.ProfileViewDetailed(actorInfo))
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{

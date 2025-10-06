@@ -49,11 +49,11 @@ func HandleGetPostThread(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrat
 
 	// Query all posts in this thread
 	type threadPost struct {
-		ID         uint
-		Rkey       string
-		ReplyTo    uint
-		InThread   uint
-		AuthorDID  string
+		ID        uint
+		Rkey      string
+		ReplyTo   uint
+		InThread  uint
+		AuthorDID string
 	}
 	var threadPosts []threadPost
 	db.Raw(`

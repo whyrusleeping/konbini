@@ -30,7 +30,7 @@ func HandleGetProfile(c echo.Context, hydrator *hydration.Hydrator) error {
 	}
 
 	// Hydrate actor info
-	actorInfo, err := hydrator.HydrateActor(ctx, did)
+	actorInfo, err := hydrator.HydrateActorDetailed(ctx, did)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]interface{}{
 			"error":   "ActorNotFound",
@@ -38,17 +38,8 @@ func HandleGetProfile(c echo.Context, hydrator *hydration.Hydrator) error {
 		})
 	}
 
-	// Get follower/follows/posts counts
-	// TODO: These queries should be optimized
-	var followerCount, followsCount, postsCount int
-
-	// We'll return 0 for now - can optimize later
-	followerCount = 0
-	followsCount = 0
-	postsCount = 0
-
 	// Build response
-	profile := views.ProfileViewDetailed(actorInfo, followerCount, followsCount, postsCount)
+	profile := views.ProfileViewDetailed(actorInfo)
 
 	return c.JSON(http.StatusOK, profile)
 }

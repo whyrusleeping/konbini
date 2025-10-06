@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/bluesky-social/indigo/atproto/syntax"
@@ -52,6 +53,81 @@ func (h *Hydrator) HydrateActor(ctx context.Context, did string) (*ActorInfo, er
 	}
 
 	return info, nil
+}
+
+type ActorInfoDetailed struct {
+	ActorInfo
+	FollowCount   int64
+	FollowerCount int64
+	PostCount     int64
+}
+
+func (h *Hydrator) HydrateActorDetailed(ctx context.Context, did string) (*ActorInfoDetailed, error) {
+	act, err := h.HydrateActor(ctx, did)
+	if err != nil {
+		return nil, err
+	}
+
+	actd := ActorInfoDetailed{
+		ActorInfo: *act,
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		c, err := h.getFollowCountForUser(ctx, did)
+		if err != nil {
+			slog.Error("failed to get follow count", "did", did, "error", err)
+		}
+		actd.FollowCount = c
+	}()
+	go func() {
+		defer wg.Done()
+		c, err := h.getFollowerCountForUser(ctx, did)
+		if err != nil {
+			slog.Error("failed to get follower count", "did", did, "error", err)
+		}
+		actd.FollowerCount = c
+	}()
+	go func() {
+		defer wg.Done()
+		c, err := h.getPostCountForUser(ctx, did)
+		if err != nil {
+			slog.Error("failed to get post count", "did", did, "error", err)
+		}
+		actd.PostCount = c
+	}()
+	wg.Wait()
+
+	return &actd, nil
+}
+
+func (h *Hydrator) getFollowCountForUser(ctx context.Context, did string) (int64, error) {
+	var count int64
+	if err := h.db.Raw("SELECT count(*) FROM follows WHERE author = (SELECT id FROM repos WHERE did = ?)", did).Scan(&count).Error; err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+func (h *Hydrator) getFollowerCountForUser(ctx context.Context, did string) (int64, error) {
+	var count int64
+	if err := h.db.Raw("SELECT count(*) FROM follows WHERE subject = (SELECT id FROM repos WHERE did = ?)", did).Scan(&count).Error; err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+func (h *Hydrator) getPostCountForUser(ctx context.Context, did string) (int64, error) {
+	var count int64
+	if err := h.db.Raw("SELECT count(*) FROM posts WHERE author = (SELECT id FROM repos WHERE did = ?)", did).Scan(&count).Error; err != nil {
+		return 0, err
+	}
+
+	return count, nil
 }
 
 // HydrateActors hydrates multiple actors

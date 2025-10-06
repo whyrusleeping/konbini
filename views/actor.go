@@ -57,7 +57,7 @@ func ProfileView(actor *hydration.ActorInfo) *bsky.ActorDefs_ProfileView {
 }
 
 // ProfileViewDetailed builds a detailed profile view (app.bsky.actor.defs#profileViewDetailed)
-func ProfileViewDetailed(actor *hydration.ActorInfo, followerCount, followsCount, postsCount int) *bsky.ActorDefs_ProfileViewDetailed {
+func ProfileViewDetailed(actor *hydration.ActorInfoDetailed) *bsky.ActorDefs_ProfileViewDetailed {
 	view := &bsky.ActorDefs_ProfileViewDetailed{
 		Did:    actor.DID,
 		Handle: actor.Handle,
@@ -85,12 +85,9 @@ func ProfileViewDetailed(actor *hydration.ActorInfo, followerCount, followsCount
 	}
 
 	// Add counts
-	fc := int64(followerCount)
-	fsc := int64(followsCount)
-	pc := int64(postsCount)
-	view.FollowersCount = &fc
-	view.FollowsCount = &fsc
-	view.PostsCount = &pc
+	view.FollowersCount = &actor.FollowerCount
+	view.FollowsCount = &actor.FollowCount
+	view.PostsCount = &actor.PostCount
 
 	return view
 }
