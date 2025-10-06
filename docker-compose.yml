@@ -25,8 +25,8 @@ services:
     container_name: konbini-backend
     environment:
       - DATABASE_URL=postgres://konbini:konbini_password@postgres:5432/konbini?sslmode=disable
-      - BSKY_HANDLE=${BSKY_HANDLE}
-      - BSKY_PASSWORD=${BSKY_PASSWORD}
+      - BSKY_HANDLE=${BSKY_HANDLE:?}
+      - BSKY_PASSWORD=${BSKY_PASSWORD:?}
     ports:
       - "4444:4444"
     depends_on:
