@@ -19,6 +19,7 @@ The easiest way to run Konbini is with Docker Compose, which will start PostgreS
 ### Prerequisites
 
 - Docker and Docker Compose installed
+- Creating an app password (via: https://bsky.app/settings/app-passwords)
 
 ### Setup
 
