@@ -20,13 +20,15 @@ import (
 	"github.com/bluesky-social/indigo/cmd/relay/stream"
 	"github.com/bluesky-social/indigo/cmd/relay/stream/schedulers/parallel"
 	"github.com/bluesky-social/indigo/util/cliutil"
-	"github.com/bluesky-social/indigo/xrpc"
+	xrpclib "github.com/bluesky-social/indigo/xrpc"
 	"github.com/gorilla/websocket"
 	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/ipfs/go-cid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/urfave/cli/v2"
+	"github.com/whyrusleeping/konbini/xrpc"
 	"gorm.io/gorm/logger"
 )
 
@@ -125,7 +127,7 @@ func main() {
 		}
 		mydid := resp.DID.String()
 
-		cc := &xrpc.Client{
+		cc := &xrpclib.Client{
 			Host: resp.PDSEndpoint(),
 		}
 
@@ -137,7 +139,7 @@ func main() {
 			return err
 		}
 
-		cc.Auth = &xrpc.AuthInfo{
+		cc.Auth = &xrpclib.AuthInfo{
 			AccessJwt:  nsess.AccessJwt,
 			Did:        mydid,
 			Handle:     nsess.Handle,
@@ -152,6 +154,7 @@ func main() {
 			missingProfiles: make(chan string, 1024),
 			missingPosts:    make(chan string, 1024),
 		}
+		fmt.Println("MY DID: ", s.mydid)
 
 		pgb := &PostgresBackend{
 			relevantDids:  make(map[string]bool),
@@ -174,12 +177,22 @@ func main() {
 			return fmt.Errorf("failed to load relevant dids set: %w", err)
 		}
 
+		// Start custom API server (for the custom frontend)
 		go func() {
 			if err := s.runApiServer(); err != nil {
 				fmt.Println("failed to start api server: ", err)
 			}
 		}()
 
+		// Start XRPC server (for official Bluesky app compatibility)
+		go func() {
+			xrpcServer := xrpc.NewServer(db, dir, pgb)
+			if err := xrpcServer.Start(":4446"); err != nil {
+				fmt.Println("failed to start XRPC server: ", err)
+			}
+		}()
+
+		// Start pprof server
 		go func() {
 			http.ListenAndServe(":4445", nil)
 		}()
@@ -203,7 +216,7 @@ type Server struct {
 
 	dir identity.Directory
 
-	client *xrpc.Client
+	client *xrpclib.Client
 	mydid  string
 	myrepo *Repo
 
@@ -215,7 +228,7 @@ type Server struct {
 	missingPosts    chan string
 }
 
-func (s *Server) getXrpcClient() (*xrpc.Client, error) {
+func (s *Server) getXrpcClient() (*xrpclib.Client, error) {
 	// TODO: handle refreshing the token periodically
 	return s.client, nil
 }
@@ -335,11 +348,23 @@ const (
 	NotifKindRepost  = "repost"
 )
 
-func (s *Server) AddNotification(ctx context.Context, forUser, author uint, recordUri string, kind string) error {
+func (s *Server) AddNotification(ctx context.Context, forUser, author uint, recordUri string, recordCid cid.Cid, kind string) error {
 	return s.backend.db.Create(&Notification{
-		For:    forUser,
-		Author: author,
-		Source: recordUri,
-		Kind:   kind,
+		For:       forUser,
+		Author:    author,
+		Source:    recordUri,
+		SourceCid: recordCid.String(),
+		Kind:      kind,
 	}).Error
+}
+
+func (s *Server) rescanRepo(ctx context.Context, did string) error {
+	resp, err := s.dir.LookupDID(ctx, syntax.DID(did))
+	if err != nil {
+		return err
+	}
+
+	_ = resp
+	return nil
+
 }

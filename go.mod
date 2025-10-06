@@ -4,11 +4,13 @@ go 1.25.1
 
 require (
 	github.com/bluesky-social/indigo v0.0.0-20250909204019-c5eaa30f683f
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/gorilla/websocket v1.5.1
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/ipfs/go-cid v0.4.1
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/labstack/echo/v4 v4.11.3
+	github.com/labstack/gommon v0.4.1
 	github.com/prometheus/client_golang v1.19.1
 	github.com/urfave/cli/v2 v2.27.7
 	github.com/whyrusleeping/market v0.0.0-20250711215409-cc684a207f15
@@ -61,7 +63,6 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
-	github.com/labstack/gommon v0.4.1 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.1 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
 	github.com/lestrrat-go/httprc v1.0.4 // indirect

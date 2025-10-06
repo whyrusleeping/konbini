@@ -400,3 +400,7 @@ func (b *PostgresBackend) getRepoByID(ctx context.Context, id uint) (*models.Rep
 
 	return &r, nil
 }
+
+func (b *PostgresBackend) TrackMissingActor(did string) {
+	b.s.addMissingProfile(context.TODO(), did)
+}

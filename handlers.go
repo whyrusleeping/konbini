@@ -11,7 +11,7 @@ import (
 
 	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/bluesky-social/indigo/atproto/syntax"
-	"github.com/bluesky-social/indigo/xrpc"
+	xrpclib "github.com/bluesky-social/indigo/xrpc"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
@@ -23,6 +23,7 @@ func (s *Server) runApiServer() error {
 	e := echo.New()
 	e.Use(middleware.CORS())
 	e.GET("/debug", s.handleGetDebugInfo)
+	e.GET("/reldids", s.handleGetRelevantDids)
 
 	views := e.Group("/api")
 	views.GET("/me", s.handleGetMe)
@@ -47,6 +48,12 @@ func (s *Server) handleGetDebugInfo(e echo.Context) error {
 
 	return e.JSON(200, map[string]any{
 		"seq": seq,
+	})
+}
+
+func (s *Server) handleGetRelevantDids(e echo.Context) error {
+	return e.JSON(200, map[string]any{
+		"dids": s.backend.relevantDids,
 	})
 }
 
@@ -862,7 +869,7 @@ func (s *Server) handleCreateRecord(e echo.Context) error {
 	}
 
 	var resp createRecordResponse
-	if err := s.client.Do(ctx, xrpc.Procedure, "application/json", "com.atproto.repo.createRecord", nil, input, &resp); err != nil {
+	if err := s.client.Do(ctx, xrpclib.Procedure, "application/json", "com.atproto.repo.createRecord", nil, input, &resp); err != nil {
 		slog.Error("failed to create record", "error", err)
 		return e.JSON(500, map[string]any{
 			"error":   "failed to create record",

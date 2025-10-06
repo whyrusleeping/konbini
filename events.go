@@ -240,7 +240,7 @@ func (b *PostgresBackend) HandleCreatePost(ctx context.Context, repo *Repo, rkey
 		p.InThread = thread
 
 		if p.ReplyToUsr == b.s.myrepo.ID {
-			if err := b.s.AddNotification(ctx, b.s.myrepo.ID, p.Author, uri, NotifKindReply); err != nil {
+			if err := b.s.AddNotification(ctx, b.s.myrepo.ID, p.Author, uri, cc, NotifKindReply); err != nil {
 				slog.Warn("failed to create notification", "uri", uri, "error", err)
 			}
 		}
@@ -286,7 +286,7 @@ func (b *PostgresBackend) HandleCreatePost(ctx context.Context, repo *Repo, rkey
 
 					// Create notification if the mentioned user is the current user
 					if mentionedRepo.ID == b.s.myrepo.ID {
-						if err := b.s.AddNotification(ctx, b.s.myrepo.ID, p.Author, uri, NotifKindMention); err != nil {
+						if err := b.s.AddNotification(ctx, b.s.myrepo.ID, p.Author, uri, cc, NotifKindMention); err != nil {
 							slog.Warn("failed to create mention notification", "uri", uri, "error", err)
 						}
 					}
@@ -383,7 +383,7 @@ func (b *PostgresBackend) HandleCreateLike(ctx context.Context, repo *Repo, rkey
 	// Create notification if the liked post belongs to the current user
 	if pinfo.Author == b.s.myrepo.ID {
 		uri := fmt.Sprintf("at://%s/app.bsky.feed.like/%s", repo.Did, rkey)
-		if err := b.s.AddNotification(ctx, b.s.myrepo.ID, repo.ID, uri, NotifKindLike); err != nil {
+		if err := b.s.AddNotification(ctx, b.s.myrepo.ID, repo.ID, uri, cc, NotifKindLike); err != nil {
 			slog.Warn("failed to create like notification", "uri", uri, "error", err)
 		}
 	}
@@ -422,7 +422,7 @@ func (b *PostgresBackend) HandleCreateRepost(ctx context.Context, repo *Repo, rk
 	// Create notification if the reposted post belongs to the current user
 	if pinfo.Author == b.s.myrepo.ID {
 		uri := fmt.Sprintf("at://%s/app.bsky.feed.repost/%s", repo.Did, rkey)
-		if err := b.s.AddNotification(ctx, b.s.myrepo.ID, repo.ID, uri, NotifKindRepost); err != nil {
+		if err := b.s.AddNotification(ctx, b.s.myrepo.ID, repo.ID, uri, cc, NotifKindRepost); err != nil {
 			slog.Warn("failed to create repost notification", "uri", uri, "error", err)
 		}
 	}
