@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { PostResponse } from '../types';
 import { ApiClient } from '../api';
 import { PostCard } from './PostCard';
+import { EngagementModal } from './EngagementModal';
 import './PostView.css';
 
 export const PostView: React.FC = () => {
@@ -11,6 +12,7 @@ export const PostView: React.FC = () => {
   const [threadPosts, setThreadPosts] = useState<PostResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showEngagementModal, setShowEngagementModal] = useState<'likes' | 'reposts' | 'replies' | null>(null);
 
   useEffect(() => {
     // Scroll to top when navigating to a post
@@ -96,6 +98,38 @@ export const PostView: React.FC = () => {
           <PostCard postResponse={mainPost} showThreadIndicator={false} />
         </div>
 
+        {mainPost.counts && (mainPost.counts.likes > 0 || mainPost.counts.reposts > 0 || mainPost.counts.replies > 0) && (
+          <div className="post-engagement-detail">
+            {mainPost.counts.likes > 0 && (
+              <button
+                className="engagement-detail-item"
+                onClick={() => setShowEngagementModal('likes')}
+              >
+                <span className="engagement-detail-count">{mainPost.counts.likes}</span>
+                <span className="engagement-detail-label">{mainPost.counts.likes === 1 ? 'Like' : 'Likes'}</span>
+              </button>
+            )}
+            {mainPost.counts.reposts > 0 && (
+              <button
+                className="engagement-detail-item"
+                onClick={() => setShowEngagementModal('reposts')}
+              >
+                <span className="engagement-detail-count">{mainPost.counts.reposts}</span>
+                <span className="engagement-detail-label">{mainPost.counts.reposts === 1 ? 'Repost' : 'Reposts'}</span>
+              </button>
+            )}
+            {mainPost.counts.replies > 0 && (
+              <button
+                className="engagement-detail-item"
+                onClick={() => setShowEngagementModal('replies')}
+              >
+                <span className="engagement-detail-count">{mainPost.counts.replies}</span>
+                <span className="engagement-detail-label">{mainPost.counts.replies === 1 ? 'Reply' : 'Replies'}</span>
+              </button>
+            )}
+          </div>
+        )}
+
         {threadPosts.length > 0 && (
           <div className="thread-replies">
             <div className="replies-header">
@@ -109,6 +143,14 @@ export const PostView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {showEngagementModal && (
+        <EngagementModal
+          postId={mainPost.id}
+          type={showEngagementModal}
+          onClose={() => setShowEngagementModal(null)}
+        />
+      )}
     </div>
   );
 };

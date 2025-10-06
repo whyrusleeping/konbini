@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/bluesky-social/indigo/api/atproto"
@@ -68,6 +69,7 @@ func (s *Server) fetchMissingProfile(ctx context.Context, did string) error {
 }
 
 func (s *Server) addMissingPost(ctx context.Context, uri string) {
+	slog.Info("adding missing post to fetch queue", "uri", uri)
 	select {
 	case s.missingPosts <- uri:
 	case <-ctx.Done():

@@ -88,6 +88,7 @@ func main() {
 		db.AutoMigrate(StarterPack{})
 		db.AutoMigrate(SyncInfo{})
 		db.AutoMigrate(Notification{})
+		db.AutoMigrate(SequenceTracker{})
 
 		ctx := context.TODO()
 
@@ -186,12 +187,12 @@ func main() {
 		go s.missingProfileFetcher()
 		go s.missingPostFetcher()
 
-		seqno, err := loadLastSeq("sequence.txt")
+		seqno, err := loadLastSeq(db, "firehose_seq")
 		if err != nil {
 			fmt.Println("failed to load sequence number, starting over", err)
 		}
 
-		return s.startLiveTail(ctx, seqno, 10, 20)
+		return s.startLiveTail(ctx, int(seqno), 10, 20)
 	}
 
 	app.RunAndExitOnError()
@@ -267,7 +268,7 @@ func (s *Server) startLiveTail(ctx context.Context, curs int, parWorkers, maxQ i
 				s.lastSeq = evt.Seq
 
 				if evt.Seq%1000 == 0 {
-					if err := storeLastSeq("sequence.txt", int(evt.Seq)); err != nil {
+					if err := storeLastSeq(s.backend.db, "firehose_seq", evt.Seq); err != nil {
 						fmt.Println("failed to store seqno: ", err)
 					}
 				}

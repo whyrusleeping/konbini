@@ -1,28 +1,27 @@
 package main
 
 import (
-	"fmt"
-	"io/ioutil"
-	"strconv"
-	"strings"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-func storeLastSeq(filename string, seq int) error {
-	data := fmt.Sprint(seq)
-	return ioutil.WriteFile(filename, []byte(data), 0644)
+func storeLastSeq(db *gorm.DB, key string, seq int64) error {
+	return db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"int_val"}),
+	}).Create(&SequenceTracker{
+		Key:    key,
+		IntVal: seq,
+	}).Error
 }
 
-func loadLastSeq(filename string) (int, error) {
-	data, err := ioutil.ReadFile(filename)
-	if err != nil {
+func loadLastSeq(db *gorm.DB, key string) (int64, error) {
+	var info SequenceTracker
+	if err := db.Where("key = ?", key).First(&info).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return 0, nil
+		}
 		return 0, err
 	}
-
-	seqStr := strings.TrimSpace(string(data))
-	seq, err := strconv.Atoi(seqStr)
-	if err != nil {
-		return 0, err
-	}
-
-	return seq, nil
+	return info.IntVal, nil
 }

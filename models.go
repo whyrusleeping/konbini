@@ -40,3 +40,9 @@ type Notification struct {
 	Source string
 	Kind   string
 }
+
+type SequenceTracker struct {
+	ID     uint   `gorm:"primarykey"`
+	Key    string `gorm:"uniqueIndex"`
+	IntVal int64
+}
