@@ -3,6 +3,7 @@ package actor
 import (
 	"net/http"
 
+	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/labstack/echo/v4"
 	"github.com/whyrusleeping/konbini/hydration"
 	"github.com/whyrusleeping/konbini/views"
@@ -28,7 +29,7 @@ func HandleGetProfiles(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator
 	ctx := c.Request().Context()
 
 	// Resolve all actors to DIDs and hydrate profiles
-	profiles := make([]interface{}, 0)
+	profiles := make([]*bsky.ActorDefs_ProfileViewDetailed, 0, len(actors))
 	for _, actor := range actors {
 		// Resolve actor to DID
 		did, err := hydrator.ResolveDID(ctx, actor)
@@ -43,20 +44,6 @@ func HandleGetProfiles(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator
 			// Skip actors that can't be hydrated
 			continue
 		}
-
-		// Get counts for the profile
-		type counts struct {
-			Followers int
-			Follows   int
-			Posts     int
-		}
-		var c counts
-		db.Raw(`
-			SELECT
-				(SELECT COUNT(*) FROM follows WHERE subject = (SELECT id FROM repos WHERE did = ?)) as followers,
-				(SELECT COUNT(*) FROM follows WHERE author = (SELECT id FROM repos WHERE did = ?)) as follows,
-				(SELECT COUNT(*) FROM posts WHERE author = (SELECT id FROM repos WHERE did = ?)) as posts
-		`, did, did, did).Scan(&c)
 
 		profiles = append(profiles, views.ProfileViewDetailed(actorInfo))
 	}

@@ -3,6 +3,8 @@ package main
 import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	. "github.com/whyrusleeping/konbini/models"
 )
 
 func storeLastSeq(db *gorm.DB, key string, seq int64) error {

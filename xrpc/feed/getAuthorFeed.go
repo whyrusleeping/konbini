@@ -1,21 +1,30 @@
 package feed
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
+	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/labstack/echo/v4"
 	"github.com/whyrusleeping/konbini/hydration"
 	"github.com/whyrusleeping/konbini/views"
 	"gorm.io/gorm"
 )
 
+type postRow struct {
+	URI      string
+	AuthorID uint
+}
+
 // HandleGetAuthorFeed implements app.bsky.feed.getAuthorFeed
 func HandleGetAuthorFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator) error {
 	actorParam := c.QueryParam("actor")
 	if actorParam == "" {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+		return c.JSON(http.StatusBadRequest, map[string]any{
 			"error":   "InvalidRequest",
 			"message": "actor parameter is required",
 		})
@@ -49,7 +58,7 @@ func HandleGetAuthorFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrat
 	// Resolve actor to DID
 	did, err := hydrator.ResolveDID(ctx, actorParam)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+		return c.JSON(http.StatusBadRequest, map[string]any{
 			"error":   "ActorNotFound",
 			"message": "actor not found",
 		})
@@ -87,35 +96,15 @@ func HandleGetAuthorFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrat
 		`
 	}
 
-	type postRow struct {
-		URI      string
-		AuthorID uint
-	}
 	var rows []postRow
 	if err := db.Raw(query, did, cursor, limit).Scan(&rows).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+		return c.JSON(http.StatusInternalServerError, map[string]any{
 			"error":   "InternalError",
 			"message": "failed to query author feed",
 		})
 	}
 
-	// Hydrate posts
-	feed := make([]interface{}, 0)
-	for _, row := range rows {
-		postInfo, err := hydrator.HydratePost(ctx, row.URI, viewer)
-		if err != nil {
-			continue
-		}
-
-		// Hydrate author
-		authorInfo, err := hydrator.HydrateActor(ctx, postInfo.Author)
-		if err != nil {
-			continue
-		}
-
-		feedItem := views.FeedViewPost(postInfo, authorInfo)
-		feed = append(feed, feedItem)
-	}
+	feed := hydratePostRows(ctx, hydrator, viewer, rows)
 
 	// Generate next cursor
 	var nextCursor string
@@ -130,8 +119,53 @@ func HandleGetAuthorFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrat
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	return c.JSON(http.StatusOK, map[string]any{
 		"feed":   feed,
 		"cursor": nextCursor,
 	})
+}
+
+func hydratePostRows(ctx context.Context, hydrator *hydration.Hydrator, viewer string, rows []postRow) []*bsky.FeedDefs_FeedViewPost {
+	// Hydrate posts
+	var wg sync.WaitGroup
+
+	var outLk sync.Mutex
+	feed := make([]*bsky.FeedDefs_FeedViewPost, len(rows))
+	for i, row := range rows {
+		wg.Add(1)
+		go func(i int, row postRow) {
+			defer wg.Done()
+
+			postInfo, err := hydrator.HydratePost(ctx, row.URI, viewer)
+			if err != nil {
+				slog.Error("failed to hydrate post", "uri", row.URI, "error", err)
+				return
+			}
+
+			// Hydrate author
+			authorInfo, err := hydrator.HydrateActor(ctx, postInfo.Author)
+			if err != nil {
+				slog.Error("failed to hydrate actor", "actor", postInfo.Author, "error", err)
+				return
+			}
+
+			feedItem := views.FeedViewPost(postInfo, authorInfo)
+			outLk.Lock()
+			feed[i] = feedItem
+			outLk.Unlock()
+		}(i, row)
+	}
+	wg.Wait()
+
+	x := 0
+	for i := 0; i < len(feed); i++ {
+		if feed[i] != nil {
+			feed[x] = feed[i]
+			x++
+			continue
+		}
+	}
+	feed = feed[:x]
+
+	return feed
 }

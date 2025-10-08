@@ -10,8 +10,9 @@ type Hydrator struct {
 	db  *gorm.DB
 	dir identity.Directory
 
-	missingActorCallback func(string)
-	missingPostCallback  func(string)
+	missingActorCallback         func(string)
+	missingPostCallback          func(string)
+	missingFeedGeneratorCallback func(string)
 }
 
 // NewHydrator creates a new Hydrator
@@ -29,6 +30,16 @@ func (h *Hydrator) SetMissingActorCallback(fn func(string)) {
 func (h *Hydrator) addMissingActor(did string) {
 	if h.missingActorCallback != nil {
 		h.missingActorCallback(did)
+	}
+}
+
+func (h *Hydrator) SetMissingFeedGeneratorCallback(fn func(string)) {
+	h.missingFeedGeneratorCallback = fn
+}
+
+func (h *Hydrator) AddMissingFeedGenerator(uri string) {
+	if h.missingFeedGeneratorCallback != nil {
+		h.missingFeedGeneratorCallback(uri)
 	}
 }
 

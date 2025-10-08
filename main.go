@@ -30,6 +30,8 @@ import (
 	"github.com/urfave/cli/v2"
 	"github.com/whyrusleeping/konbini/xrpc"
 	"gorm.io/gorm/logger"
+
+	. "github.com/whyrusleeping/konbini/models"
 )
 
 var handleOpHist = promauto.NewHistogramVec(prometheus.HistogramOpts{
@@ -151,8 +153,9 @@ func main() {
 			client: cc,
 			dir:    dir,
 
-			missingProfiles: make(chan string, 1024),
-			missingPosts:    make(chan string, 1024),
+			missingProfiles:       make(chan string, 1024),
+			missingPosts:          make(chan string, 1024),
+			missingFeedGenerators: make(chan string, 1024),
 		}
 		fmt.Println("MY DID: ", s.mydid)
 
@@ -199,6 +202,7 @@ func main() {
 
 		go s.missingProfileFetcher()
 		go s.missingPostFetcher()
+		go s.missingFeedGeneratorFetcher()
 
 		seqno, err := loadLastSeq(db, "firehose_seq")
 		if err != nil {
@@ -223,9 +227,10 @@ type Server struct {
 	seqLk   sync.Mutex
 	lastSeq int64
 
-	mpLk            sync.Mutex
-	missingProfiles chan string
-	missingPosts    chan string
+	mpLk                  sync.Mutex
+	missingProfiles       chan string
+	missingPosts          chan string
+	missingFeedGenerators chan string
 }
 
 func (s *Server) getXrpcClient() (*xrpclib.Client, error) {

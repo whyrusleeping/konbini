@@ -32,6 +32,7 @@ type Backend interface {
 	// Add methods as needed for data access
 
 	TrackMissingActor(did string)
+	TrackMissingFeedGenerator(uri string)
 }
 
 // NewServer creates a new XRPC server
@@ -60,6 +61,7 @@ func NewServer(db *gorm.DB, dir identity.Directory, backend Backend) *Server {
 	}
 
 	s.hydrator.SetMissingActorCallback(backend.TrackMissingActor)
+	s.hydrator.SetMissingFeedGeneratorCallback(backend.TrackMissingFeedGenerator)
 
 	// Register XRPC endpoints
 	s.registerEndpoints()
@@ -124,6 +126,12 @@ func (s *Server) registerEndpoints() {
 	xrpcGroup.GET("/app.bsky.feed.getActorLikes", func(c echo.Context) error {
 		return feed.HandleGetActorLikes(c, s.db, s.hydrator)
 	}, s.requireAuth)
+	xrpcGroup.GET("/app.bsky.feed.getFeed", func(c echo.Context) error {
+		return feed.HandleGetFeed(c, s.db, s.hydrator, s.dir)
+	})
+	xrpcGroup.GET("/app.bsky.feed.getFeedGenerator", func(c echo.Context) error {
+		return feed.HandleGetFeedGenerator(c, s.db, s.hydrator, s.dir)
+	})
 
 	// app.bsky.graph.*
 	xrpcGroup.GET("/app.bsky.graph.getFollows", func(c echo.Context) error {
@@ -166,6 +174,9 @@ func (s *Server) registerEndpoints() {
 	})
 	xrpcGroup.GET("/app.bsky.unspecced.getTrendingTopics", func(c echo.Context) error {
 		return unspecced.HandleGetTrendingTopics(c)
+	})
+	xrpcGroup.GET("/app.bsky.unspecced.getPostThreadV2", func(c echo.Context) error {
+		return unspecced.HandleGetPostThreadV2(c, s.db, s.hydrator)
 	})
 }
 

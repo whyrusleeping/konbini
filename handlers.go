@@ -16,6 +16,8 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
 	"github.com/whyrusleeping/market/models"
+
+	. "github.com/whyrusleeping/konbini/models"
 )
 
 func (s *Server) runApiServer() error {

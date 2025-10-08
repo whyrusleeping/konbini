@@ -17,6 +17,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
+
+	. "github.com/whyrusleeping/konbini/models"
 )
 
 func (b *PostgresBackend) getOrCreateRepo(ctx context.Context, did string) (*Repo, error) {
@@ -403,4 +405,8 @@ func (b *PostgresBackend) getRepoByID(ctx context.Context, id uint) (*models.Rep
 
 func (b *PostgresBackend) TrackMissingActor(did string) {
 	b.s.addMissingProfile(context.TODO(), did)
+}
+
+func (b *PostgresBackend) TrackMissingFeedGenerator(uri string) {
+	b.s.addMissingFeedGenerator(context.TODO(), uri)
 }

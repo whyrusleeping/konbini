@@ -1,14 +1,12 @@
 package feed
 
 import (
-	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/whyrusleeping/konbini/hydration"
-	"github.com/whyrusleeping/konbini/views"
 	"gorm.io/gorm"
 )
 
@@ -16,7 +14,7 @@ import (
 func HandleGetTimeline(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator) error {
 	viewer := getUserDID(c)
 	if viewer == "" {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+		return c.JSON(http.StatusUnauthorized, map[string]any{
 			"error":   "AuthenticationRequired",
 			"message": "authentication required",
 		})
@@ -43,17 +41,13 @@ func HandleGetTimeline(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator
 	// Get viewer's repo ID
 	var viewerRepoID uint
 	if err := db.Raw("SELECT id FROM repos WHERE did = ?", viewer).Scan(&viewerRepoID).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+		return c.JSON(http.StatusInternalServerError, map[string]any{
 			"error":   "InternalError",
 			"message": "failed to load viewer",
 		})
 	}
 
 	// Query posts from followed users
-	type postRow struct {
-		URI      string
-		AuthorID uint
-	}
 	var rows []postRow
 	err := db.Raw(`
 		SELECT
@@ -70,30 +64,14 @@ func HandleGetTimeline(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator
 	`, viewerRepoID, cursor, limit).Scan(&rows).Error
 
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+		return c.JSON(http.StatusInternalServerError, map[string]any{
 			"error":   "InternalError",
 			"message": "failed to query timeline",
 		})
 	}
 
 	// Hydrate posts
-	feed := make([]interface{}, 0)
-	for _, row := range rows {
-		postInfo, err := hydrator.HydratePost(ctx, row.URI, viewer)
-		if err != nil {
-			continue
-		}
-
-		// Hydrate author
-		authorInfo, err := hydrator.HydrateActor(ctx, postInfo.Author)
-		if err != nil {
-			slog.Error("failed to hydrate actor", "author", postInfo.Author, "error", err)
-			continue
-		}
-
-		feedItem := views.FeedViewPost(postInfo, authorInfo)
-		feed = append(feed, feedItem)
-	}
+	feed := hydratePostRows(ctx, hydrator, viewer, rows)
 
 	// Generate next cursor
 	var nextCursor string
@@ -111,7 +89,7 @@ func HandleGetTimeline(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	return c.JSON(http.StatusOK, map[string]any{
 		"feed":   feed,
 		"cursor": nextCursor,
 	})

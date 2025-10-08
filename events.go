@@ -18,6 +18,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"gorm.io/gorm"
+
+	. "github.com/whyrusleeping/konbini/models"
 )
 
 type PostgresBackend struct {
@@ -645,6 +647,7 @@ func (b *PostgresBackend) HandleCreateFeedGenerator(ctx context.Context, repo *R
 		Author:  repo.ID,
 		Rkey:    rkey,
 		Did:     rec.Did,
+		Raw:     recb,
 	}).Error; err != nil {
 		return err
 	}

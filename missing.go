@@ -131,3 +131,67 @@ func (s *Server) fetchMissingPost(ctx context.Context, uri string) error {
 
 	return s.backend.HandleCreatePost(ctx, repo, rkey, buf.Bytes(), cc)
 }
+
+func (s *Server) addMissingFeedGenerator(ctx context.Context, uri string) {
+	slog.Info("adding missing feed generator to fetch queue", "uri", uri)
+	select {
+	case s.missingFeedGenerators <- uri:
+	case <-ctx.Done():
+	}
+}
+
+func (s *Server) missingFeedGeneratorFetcher() {
+	for uri := range s.missingFeedGenerators {
+		if err := s.fetchMissingFeedGenerator(context.TODO(), uri); err != nil {
+			log.Warn("failed to fetch missing feed generator", "uri", uri, "error", err)
+		}
+	}
+}
+
+func (s *Server) fetchMissingFeedGenerator(ctx context.Context, uri string) error {
+	// Parse AT URI: at://did:plc:xxx/app.bsky.feed.generator/rkey
+	puri, err := syntax.ParseATURI(uri)
+	if err != nil {
+		return fmt.Errorf("invalid AT URI: %s", uri)
+	}
+
+	did := puri.Authority().String()
+	collection := puri.Collection().String()
+	rkey := puri.RecordKey().String()
+
+	repo, err := s.backend.getOrCreateRepo(ctx, did)
+	if err != nil {
+		return err
+	}
+
+	resp, err := s.dir.LookupDID(ctx, syntax.DID(did))
+	if err != nil {
+		return err
+	}
+
+	c := &xrpclib.Client{
+		Host: resp.PDSEndpoint(),
+	}
+
+	rec, err := atproto.RepoGetRecord(ctx, c, "", collection, did, rkey)
+	if err != nil {
+		return err
+	}
+
+	feedGen, ok := rec.Value.Val.(*bsky.FeedGenerator)
+	if !ok {
+		return fmt.Errorf("record we got back wasn't a feed generator somehow")
+	}
+
+	buf := new(bytes.Buffer)
+	if err := feedGen.MarshalCBOR(buf); err != nil {
+		return err
+	}
+
+	cc, err := cid.Decode(*rec.Cid)
+	if err != nil {
+		return err
+	}
+
+	return s.backend.HandleCreateFeedGenerator(ctx, repo, rkey, buf.Bytes(), cc)
+}
