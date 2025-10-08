@@ -189,7 +189,9 @@ func (b *PostgresBackend) HandleCreatePost(ctx context.Context, repo *Repo, rkey
 
 	var rec bsky.FeedPost
 	if err := rec.UnmarshalCBOR(bytes.NewReader(recb)); err != nil {
-		return err
+		uri := "at://" + repo.Did + "/app.bsky.feed.post/" + rkey
+		slog.Warn("skipping post with malformed data", "uri", uri, "error", err)
+		return nil // Skip this post rather than failing the entire event
 	}
 
 	reldids := []string{repo.Did}
