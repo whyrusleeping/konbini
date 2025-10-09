@@ -190,6 +190,17 @@ yarn web
 This takes a while on first load since its building everything.
 After that, load the localhost url it gives you and it _should_ work.
 
+## Selective Backfill
+
+If you'd like to backfill a particular repo, just hit the following endpoint:
+
+```
+curl http://localhost:4444/rescan/<DID OR HANDLE>
+
+```
+
+It will take a minute but it should pull all records from that user.
+
 ## License
 
 MIT (whyrusleeping)

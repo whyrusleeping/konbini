@@ -367,6 +367,12 @@ func (b *PostgresBackend) checkPostExists(ctx context.Context, repo *Repo, rkey 
 	return false, nil
 }
 
+func (b *PostgresBackend) addRelevantDid(did string) {
+	b.rdLk.Lock()
+	defer b.rdLk.Unlock()
+	b.relevantDids[did] = true
+}
+
 func (b *PostgresBackend) didIsRelevant(did string) bool {
 	b.rdLk.Lock()
 	defer b.rdLk.Unlock()

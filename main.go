@@ -365,6 +365,8 @@ func (s *Server) rescanRepo(ctx context.Context, did string) error {
 		return err
 	}
 
+	s.backend.addRelevantDid(did)
+
 	c := &xrpclib.Client{
 		Host: resp.PDSEndpoint(),
 	}

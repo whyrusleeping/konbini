@@ -26,6 +26,7 @@ func (s *Server) runApiServer() error {
 	e.Use(middleware.CORS())
 	e.GET("/debug", s.handleGetDebugInfo)
 	e.GET("/reldids", s.handleGetRelevantDids)
+	e.GET("/rescan/:did", s.handleRescanDid)
 
 	views := e.Group("/api")
 	views.GET("/me", s.handleGetMe)
@@ -57,6 +58,22 @@ func (s *Server) handleGetRelevantDids(e echo.Context) error {
 	return e.JSON(200, map[string]any{
 		"dids": s.backend.relevantDids,
 	})
+}
+
+func (s *Server) handleRescanDid(e echo.Context) error {
+	didparam := e.Param("did")
+
+	ctx := e.Request().Context()
+	did, err := s.resolveAccountIdent(ctx, didparam)
+	if err != nil {
+		return err
+	}
+
+	if err := s.rescanRepo(ctx, did); err != nil {
+		return err
+	}
+
+	return e.JSON(200, map[string]any{"status": "ok"})
 }
 
 func (s *Server) handleGetMe(e echo.Context) error {
