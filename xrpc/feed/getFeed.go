@@ -23,7 +23,7 @@ func HandleGetFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator, di
 	// Parse parameters
 	feedURI := c.QueryParam("feed")
 	if feedURI == "" {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+		return c.JSON(http.StatusBadRequest, map[string]any{
 			"error":   "InvalidRequest",
 			"message": "feed parameter is required",
 		})
@@ -49,7 +49,7 @@ func HandleGetFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator, di
 	rkey := extractRkeyFromURI(feedURI)
 
 	if did == "" || rkey == "" {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+		return c.JSON(http.StatusBadRequest, map[string]any{
 			"error":   "InvalidRequest",
 			"message": "invalid feed URI format",
 		})
@@ -65,7 +65,7 @@ func HandleGetFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator, di
 
 	if feedGen.ID == 0 {
 		hydrator.AddMissingFeedGenerator(feedURI)
-		return c.JSON(http.StatusNotFound, map[string]interface{}{
+		return c.JSON(http.StatusNotFound, map[string]any{
 			"error":   "NotFound",
 			"message": "feed generator not found",
 		})
@@ -75,7 +75,7 @@ func HandleGetFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator, di
 	var feedGenRecord bsky.FeedGenerator
 	if err := feedGenRecord.UnmarshalCBOR(bytes.NewReader(feedGen.Raw)); err != nil {
 		slog.Error("failed to decode feed generator record", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+		return c.JSON(http.StatusInternalServerError, map[string]any{
 			"error":   "InternalError",
 			"message": "failed to decode feed generator record",
 		})
@@ -85,7 +85,7 @@ func HandleGetFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator, di
 	serviceDID, err := syntax.ParseDID(feedGenRecord.Did)
 	if err != nil {
 		slog.Error("invalid service DID in feed generator", "error", err, "did", feedGenRecord.Did)
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+		return c.JSON(http.StatusInternalServerError, map[string]any{
 			"error":   "InternalError",
 			"message": "invalid service DID",
 		})
@@ -95,7 +95,7 @@ func HandleGetFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator, di
 	serviceIdent, err := dir.LookupDID(ctx, serviceDID)
 	if err != nil {
 		slog.Error("failed to resolve service DID", "error", err, "did", serviceDID)
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+		return c.JSON(http.StatusInternalServerError, map[string]any{
 			"error":   "InternalError",
 			"message": "failed to resolve service endpoint",
 		})
@@ -104,15 +104,38 @@ func HandleGetFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator, di
 	serviceEndpoint := serviceIdent.GetServiceEndpoint("bsky_fg")
 	if serviceEndpoint == "" {
 		slog.Error("service has no bsky_fg endpoint", "did", serviceDID)
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+		return c.JSON(http.StatusInternalServerError, map[string]any{
 			"error":   "InternalError",
 			"message": "service has no endpoint",
 		})
 	}
 
 	// Create XRPC client for the feed generator service
+	// Pass through headers from the original request so feed generators can
+	// customize feeds based on the viewer
+	headers := make(map[string]string)
+
+	// Set User-Agent to identify konbini
+	headers["User-Agent"] = "konbini/0.0.1"
+
+	// Pass through Authorization header if present (for authenticated feed requests)
+	if authHeader := c.Request().Header.Get("Authorization"); authHeader != "" {
+		headers["Authorization"] = authHeader
+	}
+
+	// Pass through Accept-Language header if present
+	if langHeader := c.Request().Header.Get("Accept-Language"); langHeader != "" {
+		headers["Accept-Language"] = langHeader
+	}
+
+	// Pass through X-Bsky-Topics header if present
+	if topicsHeader := c.Request().Header.Get("X-Bsky-Topics"); topicsHeader != "" {
+		headers["X-Bsky-Topics"] = topicsHeader
+	}
+
 	client := &xrpc.Client{
-		Host: serviceEndpoint,
+		Host:    serviceEndpoint,
+		Headers: headers,
 	}
 
 	// Call getFeedSkeleton on the service

@@ -109,6 +109,91 @@ npm start
 
 The frontend will be available at http://localhost:3000 and will connect to the API at http://localhost:4444.
 
+## Running the Bluesky App against Konbini
+
+Konbini implements a large portion of the app.bsky.\* appview endpoints that
+are required for pointing the main app to it and having it work reasonably
+well.
+
+To accomplish this you will need a few things:
+
+### Service DID
+
+You will need a DID, preferably a did:web for your appview that points at a
+public endpoint where your appview is accessible via https.
+I'll get into the https proxy next, but for the did, I've just pointed a domain
+I own (in my case appview1.bluesky.day) to a VPS, and used caddy to host a file
+at `/.well-known/did.json`.
+That file should look like this:
+
+```json
+{
+  "@context": [
+    "https://www.w3.org/ns/did/v1",
+    "https://w3id.org/security/multikey/v1"
+  ],
+  "id": "did:web:appview1.bluesky.day",
+  "verificationMethod": [
+    {
+      "id": "did:web:api.bsky.app#atproto",
+      "type": "Multikey",
+      "controller": "did:web:api.bsky.app",
+      "publicKeyMultibase": "zQ3shpRzb2NDriwCSSsce6EqGxG23kVktHZc57C3NEcuNy1jg"
+    }
+  ],
+  "service": [
+    {
+      "id": "#bsky_notif",
+      "type": "BskyNotificationService",
+      "serviceEndpoint": "YOUR APPVIEW HTTPS URL"
+    },
+    {
+      "id": "#bsky_appview",
+      "type": "BskyAppView",
+      "serviceEndpoint": "YOUR APPVIEW HTTPS URL"
+    }
+  ]
+}
+```
+
+The verificationMethod isn't used but i'm not sure if _something_ is required
+there or not, so i'm just leaving that there, it works on my machine.
+
+### HTTPS Endpoint
+
+I've been using ngrok to proxy traffic from a publicly accessible https url to my appview.
+You can simply run `ngrok http 4446` and it will give you an https url that you
+can then put in your DID doc above.
+
+### The Social App
+
+Now, clone and build the social app:
+
+```
+git clone https://github.com/bluesky-social/social-app
+cd social-app
+yarn
+```
+
+And then set this environment variable that tells it to use your appview:
+
+```
+export EXPO_PUBLIC_BLUESKY_PROXY_DID=did:web:YOURDIDWEB
+```
+
+And finally run the app:
+
+```
+yarn web
+```
+
+This takes a while on first load since its building everything.
+After that, load the localhost url it gives you and it _should_ work.
+
 ## License
 
 MIT (whyrusleeping)
+
+```
+
+```

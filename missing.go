@@ -5,27 +5,75 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/bluesky-social/indigo/api/atproto"
 	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/bluesky-social/indigo/atproto/syntax"
 	xrpclib "github.com/bluesky-social/indigo/xrpc"
 	"github.com/ipfs/go-cid"
-	"github.com/labstack/gommon/log"
 )
 
-func (s *Server) addMissingProfile(ctx context.Context, did string) {
+type MissingRecordType string
+
+const (
+	MissingRecordTypeProfile       MissingRecordType = "profile"
+	MissingRecordTypePost          MissingRecordType = "post"
+	MissingRecordTypeFeedGenerator MissingRecordType = "feedgenerator"
+)
+
+type MissingRecord struct {
+	Type       MissingRecordType
+	Identifier string // DID for profiles, AT-URI for posts/feedgens
+}
+
+func (s *Server) addMissingRecord(ctx context.Context, rec MissingRecord) {
 	select {
-	case s.missingProfiles <- did:
+	case s.missingRecords <- rec:
 	case <-ctx.Done():
 	}
 }
 
-func (s *Server) missingProfileFetcher() {
-	for did := range s.missingProfiles {
-		if err := s.fetchMissingProfile(context.TODO(), did); err != nil {
-			log.Warn("failed to fetch missing profile", "did", did, "error", err)
+// Legacy methods for backward compatibility
+func (s *Server) addMissingProfile(ctx context.Context, did string) {
+	s.addMissingRecord(ctx, MissingRecord{
+		Type:       MissingRecordTypeProfile,
+		Identifier: did,
+	})
+}
+
+func (s *Server) addMissingPost(ctx context.Context, uri string) {
+	slog.Info("adding missing post to fetch queue", "uri", uri)
+	s.addMissingRecord(ctx, MissingRecord{
+		Type:       MissingRecordTypePost,
+		Identifier: uri,
+	})
+}
+
+func (s *Server) addMissingFeedGenerator(ctx context.Context, uri string) {
+	slog.Info("adding missing feed generator to fetch queue", "uri", uri)
+	s.addMissingRecord(ctx, MissingRecord{
+		Type:       MissingRecordTypeFeedGenerator,
+		Identifier: uri,
+	})
+}
+
+func (s *Server) missingRecordFetcher() {
+	for rec := range s.missingRecords {
+		var err error
+		switch rec.Type {
+		case MissingRecordTypeProfile:
+			err = s.fetchMissingProfile(context.TODO(), rec.Identifier)
+		case MissingRecordTypePost:
+			err = s.fetchMissingPost(context.TODO(), rec.Identifier)
+		case MissingRecordTypeFeedGenerator:
+			err = s.fetchMissingFeedGenerator(context.TODO(), rec.Identifier)
+		default:
+			slog.Error("unknown missing record type", "type", rec.Type)
+			continue
+		}
+
+		if err != nil {
+			slog.Warn("failed to fetch missing record", "type", rec.Type, "identifier", rec.Identifier, "error", err)
 		}
 	}
 }
@@ -68,32 +116,15 @@ func (s *Server) fetchMissingProfile(ctx context.Context, did string) error {
 	return s.backend.HandleUpdateProfile(ctx, repo, "self", "", buf.Bytes(), cc)
 }
 
-func (s *Server) addMissingPost(ctx context.Context, uri string) {
-	slog.Info("adding missing post to fetch queue", "uri", uri)
-	select {
-	case s.missingPosts <- uri:
-	case <-ctx.Done():
-	}
-}
-
-func (s *Server) missingPostFetcher() {
-	for uri := range s.missingPosts {
-		if err := s.fetchMissingPost(context.TODO(), uri); err != nil {
-			log.Warn("failed to fetch missing post", "uri", uri, "error", err)
-		}
-	}
-}
-
 func (s *Server) fetchMissingPost(ctx context.Context, uri string) error {
-	// Parse AT URI: at://did:plc:xxx/app.bsky.feed.post/rkey
-	parts := strings.Split(uri, "/")
-	if len(parts) < 5 || !strings.HasPrefix(parts[2], "did:") {
+	puri, err := syntax.ParseATURI(uri)
+	if err != nil {
 		return fmt.Errorf("invalid AT URI: %s", uri)
 	}
 
-	did := parts[2]
-	collection := parts[3]
-	rkey := parts[4]
+	did := puri.Authority().String()
+	collection := puri.Collection().String()
+	rkey := puri.RecordKey().String()
 
 	repo, err := s.backend.getOrCreateRepo(ctx, did)
 	if err != nil {
@@ -132,24 +163,7 @@ func (s *Server) fetchMissingPost(ctx context.Context, uri string) error {
 	return s.backend.HandleCreatePost(ctx, repo, rkey, buf.Bytes(), cc)
 }
 
-func (s *Server) addMissingFeedGenerator(ctx context.Context, uri string) {
-	slog.Info("adding missing feed generator to fetch queue", "uri", uri)
-	select {
-	case s.missingFeedGenerators <- uri:
-	case <-ctx.Done():
-	}
-}
-
-func (s *Server) missingFeedGeneratorFetcher() {
-	for uri := range s.missingFeedGenerators {
-		if err := s.fetchMissingFeedGenerator(context.TODO(), uri); err != nil {
-			log.Warn("failed to fetch missing feed generator", "uri", uri, "error", err)
-		}
-	}
-}
-
 func (s *Server) fetchMissingFeedGenerator(ctx context.Context, uri string) error {
-	// Parse AT URI: at://did:plc:xxx/app.bsky.feed.generator/rkey
 	puri, err := syntax.ParseATURI(uri)
 	if err != nil {
 		return fmt.Errorf("invalid AT URI: %s", uri)

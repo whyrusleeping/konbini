@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -19,6 +20,7 @@ import (
 	"github.com/bluesky-social/indigo/atproto/syntax"
 	"github.com/bluesky-social/indigo/cmd/relay/stream"
 	"github.com/bluesky-social/indigo/cmd/relay/stream/schedulers/parallel"
+	"github.com/bluesky-social/indigo/repo"
 	"github.com/bluesky-social/indigo/util/cliutil"
 	xrpclib "github.com/bluesky-social/indigo/xrpc"
 	"github.com/gorilla/websocket"
@@ -153,9 +155,7 @@ func main() {
 			client: cc,
 			dir:    dir,
 
-			missingProfiles:       make(chan string, 1024),
-			missingPosts:          make(chan string, 1024),
-			missingFeedGenerators: make(chan string, 1024),
+			missingRecords: make(chan MissingRecord, 1024),
 		}
 		fmt.Println("MY DID: ", s.mydid)
 
@@ -200,9 +200,7 @@ func main() {
 			http.ListenAndServe(":4445", nil)
 		}()
 
-		go s.missingProfileFetcher()
-		go s.missingPostFetcher()
-		go s.missingFeedGeneratorFetcher()
+		go s.missingRecordFetcher()
 
 		seqno, err := loadLastSeq(db, "firehose_seq")
 		if err != nil {
@@ -227,10 +225,8 @@ type Server struct {
 	seqLk   sync.Mutex
 	lastSeq int64
 
-	mpLk                  sync.Mutex
-	missingProfiles       chan string
-	missingPosts          chan string
-	missingFeedGenerators chan string
+	mpLk           sync.Mutex
+	missingRecords chan MissingRecord
 }
 
 func (s *Server) getXrpcClient() (*xrpclib.Client, error) {
@@ -369,7 +365,32 @@ func (s *Server) rescanRepo(ctx context.Context, did string) error {
 		return err
 	}
 
-	_ = resp
-	return nil
+	c := &xrpclib.Client{
+		Host: resp.PDSEndpoint(),
+	}
+
+	repob, err := atproto.SyncGetRepo(ctx, c, did, "")
+	if err != nil {
+		return err
+	}
+
+	rep, err := repo.ReadRepoFromCar(ctx, bytes.NewReader(repob))
+	if err != nil {
+		return err
+	}
+
+	return rep.ForEach(ctx, "", func(k string, v cid.Cid) error {
+		blk, err := rep.Blockstore().Get(ctx, v)
+		if err != nil {
+			slog.Error("record missing in repo", "path", k, "cid", v, "error", err)
+			return nil
+		}
+
+		d := blk.RawData()
+		if err := s.backend.HandleCreate(ctx, did, "", k, &d, &v); err != nil {
+			slog.Error("failed to index record", "path", k, "cid", v, "error", err)
+		}
+		return nil
+	})
 
 }
