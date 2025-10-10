@@ -27,6 +27,7 @@ func HandleGetProfiles(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator
 	}
 
 	ctx := c.Request().Context()
+	viewer, _ := c.Get("viewer").(string)
 
 	// Resolve all actors to DIDs and hydrate profiles
 	profiles := make([]*bsky.ActorDefs_ProfileViewDetailed, 0, len(actors))
@@ -39,7 +40,7 @@ func HandleGetProfiles(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator
 		}
 
 		// Hydrate actor info
-		actorInfo, err := hydrator.HydrateActorDetailed(ctx, did)
+		actorInfo, err := hydrator.HydrateActorDetailed(ctx, did, viewer)
 		if err != nil {
 			// Skip actors that can't be hydrated
 			continue

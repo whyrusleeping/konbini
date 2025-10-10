@@ -94,10 +94,10 @@ func (s *Server) registerEndpoints() {
 	// app.bsky.actor.*
 	xrpcGroup.GET("/app.bsky.actor.getProfile", func(c echo.Context) error {
 		return actor.HandleGetProfile(c, s.hydrator)
-	})
+	}, s.optionalAuth)
 	xrpcGroup.GET("/app.bsky.actor.getProfiles", func(c echo.Context) error {
 		return actor.HandleGetProfiles(c, s.db, s.hydrator)
-	})
+	}, s.optionalAuth)
 	xrpcGroup.GET("/app.bsky.actor.getPreferences", func(c echo.Context) error {
 		return actor.HandleGetPreferences(c, s.db, s.hydrator)
 	}, s.requireAuth)
@@ -131,7 +131,7 @@ func (s *Server) registerEndpoints() {
 	}, s.requireAuth)
 	xrpcGroup.GET("/app.bsky.feed.getFeed", func(c echo.Context) error {
 		return feed.HandleGetFeed(c, s.db, s.hydrator, s.dir)
-	})
+	}, s.optionalAuth)
 	xrpcGroup.GET("/app.bsky.feed.getFeedGenerator", func(c echo.Context) error {
 		return feed.HandleGetFeedGenerator(c, s.db, s.hydrator, s.dir)
 	})

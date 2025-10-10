@@ -21,6 +21,15 @@ import (
 	. "github.com/whyrusleeping/konbini/models"
 )
 
+func (b *PostgresBackend) DidToID(ctx context.Context, did string) (uint, error) {
+	r, err := b.getOrCreateRepo(ctx, did)
+	if err != nil {
+		return 0, err
+	}
+
+	return r.ID, nil
+}
+
 func (b *PostgresBackend) getOrCreateRepo(ctx context.Context, did string) (*Repo, error) {
 	r, ok := b.repoCache.Get(did)
 	if !ok {

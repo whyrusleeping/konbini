@@ -89,6 +89,11 @@ func ProfileViewDetailed(actor *hydration.ActorInfoDetailed) *bsky.ActorDefs_Pro
 	view.FollowsCount = &actor.FollowCount
 	view.PostsCount = &actor.PostCount
 
+	// Add viewer state if available
+	if actor.ViewerState != nil {
+		view.Viewer = actor.ViewerState
+	}
+
 	return view
 }
 

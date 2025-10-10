@@ -20,6 +20,8 @@ func HandleGetProfile(c echo.Context, hydrator *hydration.Hydrator) error {
 
 	ctx := c.Request().Context()
 
+	viewer, _ := c.Get("viewer").(string)
+
 	// Resolve actor to DID
 	did, err := hydrator.ResolveDID(ctx, actorParam)
 	if err != nil {
@@ -30,7 +32,7 @@ func HandleGetProfile(c echo.Context, hydrator *hydration.Hydrator) error {
 	}
 
 	// Hydrate actor info
-	actorInfo, err := hydrator.HydrateActorDetailed(ctx, did)
+	actorInfo, err := hydrator.HydrateActorDetailed(ctx, did, viewer)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]interface{}{
 			"error":   "ActorNotFound",
