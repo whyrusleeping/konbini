@@ -24,12 +24,26 @@ const (
 type MissingRecord struct {
 	Type       MissingRecordType
 	Identifier string // DID for profiles, AT-URI for posts/feedgens
+	Wait       bool
+
+	waitch chan struct{}
 }
 
 func (s *Server) addMissingRecord(ctx context.Context, rec MissingRecord) {
+	if rec.Wait {
+		rec.waitch = make(chan struct{})
+	}
+
 	select {
 	case s.missingRecords <- rec:
 	case <-ctx.Done():
+	}
+
+	if rec.Wait {
+		select {
+		case <-rec.waitch:
+		case <-ctx.Done():
+		}
 	}
 }
 
@@ -75,10 +89,16 @@ func (s *Server) missingRecordFetcher() {
 		if err != nil {
 			slog.Warn("failed to fetch missing record", "type", rec.Type, "identifier", rec.Identifier, "error", err)
 		}
+
+		if rec.Wait {
+			close(rec.waitch)
+		}
 	}
 }
 
 func (s *Server) fetchMissingProfile(ctx context.Context, did string) error {
+	s.backend.addRelevantDid(did)
+
 	repo, err := s.backend.getOrCreateRepo(ctx, did)
 	if err != nil {
 		return err
@@ -126,6 +146,8 @@ func (s *Server) fetchMissingPost(ctx context.Context, uri string) error {
 	collection := puri.Collection().String()
 	rkey := puri.RecordKey().String()
 
+	s.backend.addRelevantDid(did)
+
 	repo, err := s.backend.getOrCreateRepo(ctx, did)
 	if err != nil {
 		return err
@@ -172,6 +194,7 @@ func (s *Server) fetchMissingFeedGenerator(ctx context.Context, uri string) erro
 	did := puri.Authority().String()
 	collection := puri.Collection().String()
 	rkey := puri.RecordKey().String()
+	s.backend.addRelevantDid(did)
 
 	repo, err := s.backend.getOrCreateRepo(ctx, did)
 	if err != nil {

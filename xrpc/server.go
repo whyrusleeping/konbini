@@ -31,8 +31,7 @@ type Server struct {
 type Backend interface {
 	// Add methods as needed for data access
 
-	TrackMissingActor(did string)
-	TrackMissingFeedGenerator(uri string)
+	TrackMissingRecord(identifier string, wait bool)
 }
 
 // NewServer creates a new XRPC server
@@ -60,8 +59,7 @@ func NewServer(db *gorm.DB, dir identity.Directory, backend Backend) *Server {
 		hydrator: hydration.NewHydrator(db, dir),
 	}
 
-	s.hydrator.SetMissingActorCallback(backend.TrackMissingActor)
-	s.hydrator.SetMissingFeedGeneratorCallback(backend.TrackMissingFeedGenerator)
+	s.hydrator.SetMissingRecordCallback(backend.TrackMissingRecord)
 
 	// Register XRPC endpoints
 	s.registerEndpoints()
@@ -78,6 +76,11 @@ func (s *Server) Start(addr string) error {
 // registerEndpoints registers all XRPC endpoints
 func (s *Server) registerEndpoints() {
 	// XRPC endpoints follow the pattern: /xrpc/<namespace>.<method>
+
+	s.e.GET("/.well-known/did.json", func(c echo.Context) error {
+		return c.File("did.json")
+	})
+
 	xrpcGroup := s.e.Group("/xrpc")
 
 	// com.atproto.identity.*

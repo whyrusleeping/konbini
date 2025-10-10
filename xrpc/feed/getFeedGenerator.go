@@ -68,7 +68,7 @@ func HandleGetFeedGenerator(c echo.Context, db *gorm.DB, hydrator *hydration.Hyd
 
 	if err != nil || feedGen.ID == 0 {
 		// Track this missing feed generator for fetching
-		hydrator.AddMissingFeedGenerator(feedURI)
+		hydrator.AddMissingRecord(feedURI, true)
 
 		return c.JSON(http.StatusNotFound, map[string]any{
 			"error":   "NotFound",

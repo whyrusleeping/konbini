@@ -409,10 +409,29 @@ func (b *PostgresBackend) getRepoByID(ctx context.Context, id uint) (*models.Rep
 	return &r, nil
 }
 
-func (b *PostgresBackend) TrackMissingActor(did string) {
-	b.s.addMissingProfile(context.TODO(), did)
+func (b *PostgresBackend) TrackMissingRecord(identifier string, wait bool) {
+	b.s.addMissingRecord(context.TODO(), MissingRecord{
+		Type:       inferRecordType(identifier),
+		Identifier: identifier,
+		Wait:       wait,
+	})
 }
 
-func (b *PostgresBackend) TrackMissingFeedGenerator(uri string) {
-	b.s.addMissingFeedGenerator(context.TODO(), uri)
+// inferRecordType determines the record type based on the identifier format
+func inferRecordType(identifier string) MissingRecordType {
+	if strings.HasPrefix(identifier, "did:") {
+		return MissingRecordTypeProfile
+	}
+
+	if strings.HasPrefix(identifier, "at://") {
+		if strings.Contains(identifier, "/app.bsky.feed.post/") {
+			return MissingRecordTypePost
+		}
+		if strings.Contains(identifier, "/app.bsky.feed.generator/") {
+			return MissingRecordTypeFeedGenerator
+		}
+	}
+
+	// Default to post if we can't determine
+	return MissingRecordTypePost
 }

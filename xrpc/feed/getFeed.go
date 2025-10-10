@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync"
 
 	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/bluesky-social/indigo/atproto/identity"
@@ -64,7 +66,7 @@ func HandleGetFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator, di
 	}
 
 	if feedGen.ID == 0 {
-		hydrator.AddMissingFeedGenerator(feedURI)
+		hydrator.AddMissingRecord(feedURI, true)
 		return c.JSON(http.StatusNotFound, map[string]any{
 			"error":   "NotFound",
 			"message": "feed generator not found",
@@ -150,27 +152,43 @@ func HandleGetFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator, di
 
 	// Hydrate the posts from the skeleton
 	posts := make([]*bsky.FeedDefs_FeedViewPost, 0, len(skeleton.Feed))
-	for _, skeletonPost := range skeleton.Feed {
-		postURI, err := syntax.ParseATURI(skeletonPost.Post)
-		if err != nil {
-			slog.Warn("invalid post URI in skeleton", "uri", skeletonPost.Post, "error", err)
-			continue
-		}
+	var wg sync.WaitGroup
+	for i := range skeleton.Feed {
+		wg.Add(1)
+		go func(ix int) {
+			defer wg.Done()
+			skeletonPost := skeleton.Feed[ix]
+			postURI, err := syntax.ParseATURI(skeletonPost.Post)
+			if err != nil {
+				slog.Warn("invalid post URI in skeleton", "uri", skeletonPost.Post, "error", err)
+				return
+			}
 
-		postInfo, err := hydrator.HydratePost(ctx, string(postURI), viewer)
-		if err != nil {
-			slog.Warn("failed to hydrate post", "uri", postURI, "error", err)
-			continue
-		}
+			postInfo, err := hydrator.HydratePost(ctx, postURI.String(), viewer)
+			if err != nil {
+				if strings.Contains(err.Error(), "post not found") {
+					hydrator.AddMissingRecord(postURI.String(), true)
+					postInfo, err = hydrator.HydratePost(ctx, postURI.String(), viewer)
+					if err != nil {
+						slog.Error("failed to hydrate post after fetch missing", "uri", postURI, "error", err)
+						return
+					}
+				} else {
+					slog.Warn("failed to hydrate post", "uri", postURI, "error", err)
+					return
+				}
+			}
 
-		authorInfo, err := hydrator.HydrateActor(ctx, postInfo.Author)
-		if err != nil {
-			slog.Warn("failed to hydrate author", "did", postInfo.Author, "error", err)
-			continue
-		}
+			authorInfo, err := hydrator.HydrateActor(ctx, postInfo.Author)
+			if err != nil {
+				slog.Warn("failed to hydrate author", "did", postInfo.Author, "error", err)
+				return
+			}
 
-		posts = append(posts, views.FeedViewPost(postInfo, authorInfo))
+			posts[ix] = views.FeedViewPost(postInfo, authorInfo)
+		}(i)
 	}
+	wg.Wait()
 
 	output := &bsky.FeedGetFeed_Output{
 		Feed:   posts,
