@@ -17,6 +17,7 @@ import (
 
 	"github.com/bluesky-social/indigo/api/atproto"
 	"github.com/bluesky-social/indigo/atproto/identity"
+	"github.com/bluesky-social/indigo/atproto/identity/redisdir"
 	"github.com/bluesky-social/indigo/atproto/syntax"
 	"github.com/bluesky-social/indigo/cmd/relay/stream"
 	"github.com/bluesky-social/indigo/cmd/relay/stream/schedulers/parallel"
@@ -31,6 +32,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/urfave/cli/v2"
 	"github.com/whyrusleeping/konbini/xrpc"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/jaeger"
+	"go.opentelemetry.io/otel/sdk/resource"
+	tracesdk "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
 	"gorm.io/gorm/logger"
 
 	. "github.com/whyrusleeping/konbini/models"
@@ -56,12 +63,18 @@ func main() {
 			Name:    "db-url",
 			EnvVars: []string{"DATABASE_URL"},
 		},
+		&cli.BoolFlag{
+			Name: "jaeger",
+		},
 		&cli.StringFlag{
 			Name: "handle",
 		},
 		&cli.IntFlag{
 			Name:  "max-db-connections",
 			Value: runtime.NumCPU(),
+		},
+		&cli.StringFlag{
+			Name: "redis-url",
 		},
 	}
 	app.Action = func(cctx *cli.Context) error {
@@ -76,6 +89,35 @@ func main() {
 			IgnoreRecordNotFoundError: false,
 			Colorful:                  true,
 		})
+
+		if cctx.Bool("jaeger") {
+			// Use Jaeger native exporter sending to port 14268
+			jaegerUrl := "http://localhost:14268/api/traces"
+			exp, err := jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(jaegerUrl)))
+			if err != nil {
+				return err
+			}
+
+			env := os.Getenv("ENV")
+			if env == "" {
+				env = "development"
+			}
+
+			tp := tracesdk.NewTracerProvider(
+				// Always be sure to batch in production.
+				tracesdk.WithBatcher(exp),
+				// Record information about this application in a Resource.
+				tracesdk.WithResource(resource.NewWithAttributes(
+					semconv.SchemaURL,
+					semconv.ServiceNameKey.String("konbini"),
+					attribute.String("env", env),         // DataDog
+					attribute.String("environment", env), // Others
+					attribute.Int64("ID", 1),
+				)),
+			)
+
+			otel.SetTracerProvider(tp)
+		}
 
 		db.AutoMigrate(Repo{})
 		db.AutoMigrate(Post{})
@@ -124,6 +166,14 @@ func main() {
 		password := os.Getenv("BSKY_PASSWORD")
 
 		dir := identity.DefaultDirectory()
+
+		if redisURL := cctx.String("redis-url"); redisURL != "" {
+			rdir, err := redisdir.NewRedisDirectory(dir, redisURL, time.Minute, time.Second*10, time.Second*10, 100_000)
+			if err != nil {
+				return err
+			}
+			dir = rdir
+		}
 
 		resp, err := dir.LookupHandle(ctx, syntax.Handle(handle))
 		if err != nil {

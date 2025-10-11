@@ -42,9 +42,9 @@ func PostView(post *hydration.PostInfo, author *hydration.ActorInfo) *bsky.FeedD
 		}
 	}
 
-	// Add embed handling
-	if post.Post.Embed != nil {
-		view.Embed = formatEmbed(post.Post.Embed, post.Author)
+	// Add embed if it was hydrated
+	if post.EmbedInfo != nil {
+		view.Embed = post.EmbedInfo
 	}
 
 	return view
@@ -68,89 +68,6 @@ func ThreadViewPost(post *hydration.PostInfo, author *hydration.ActorInfo, paren
 	// For now leaving them as interface{} to be handled by handlers
 
 	return view
-}
-
-func formatEmbed(embed *bsky.FeedPost_Embed, authorDID string) *bsky.FeedDefs_PostView_Embed {
-	if embed == nil {
-		return nil
-	}
-
-	result := &bsky.FeedDefs_PostView_Embed{}
-
-	// Handle images
-	if embed.EmbedImages != nil {
-		viewImages := make([]*bsky.EmbedImages_ViewImage, len(embed.EmbedImages.Images))
-		for i, img := range embed.EmbedImages.Images {
-			// Convert blob to CDN URLs
-			fullsize := ""
-			thumb := ""
-			if img.Image != nil {
-				// CDN URL format for feed images
-				cid := img.Image.Ref.String()
-				fullsize = fmt.Sprintf("https://cdn.bsky.app/img/feed_fullsize/plain/%s/%s@jpeg", authorDID, cid)
-				thumb = fmt.Sprintf("https://cdn.bsky.app/img/feed_thumbnail/plain/%s/%s@jpeg", authorDID, cid)
-			}
-
-			viewImages[i] = &bsky.EmbedImages_ViewImage{
-				Alt:         img.Alt,
-				AspectRatio: img.AspectRatio,
-				Fullsize:    fullsize,
-				Thumb:       thumb,
-			}
-		}
-		result.EmbedImages_View = &bsky.EmbedImages_View{
-			LexiconTypeID: "app.bsky.embed.images#view",
-			Images:        viewImages,
-		}
-		return result
-	}
-
-	// Handle external links
-	if embed.EmbedExternal != nil && embed.EmbedExternal.External != nil {
-		// Convert blob thumb to CDN URL if present
-		var thumbURL *string
-		if embed.EmbedExternal.External.Thumb != nil {
-			// CDN URL for external link thumbnails
-			cid := embed.EmbedExternal.External.Thumb.Ref.String()
-			url := fmt.Sprintf("https://cdn.bsky.app/img/feed_thumbnail/plain/%s/%s@jpeg", authorDID, cid)
-			thumbURL = &url
-		}
-
-		result.EmbedExternal_View = &bsky.EmbedExternal_View{
-			LexiconTypeID: "app.bsky.embed.external#view",
-			External: &bsky.EmbedExternal_ViewExternal{
-				Uri:         embed.EmbedExternal.External.Uri,
-				Title:       embed.EmbedExternal.External.Title,
-				Description: embed.EmbedExternal.External.Description,
-				Thumb:       thumbURL,
-			},
-		}
-		return result
-	}
-
-	// Handle video
-	if embed.EmbedVideo != nil {
-		// TODO: Implement video embed view
-		// This would require converting video blob to CDN URLs and playlist URLs
-		return nil
-	}
-
-	// Handle record (quote posts, etc.)
-	if embed.EmbedRecord != nil {
-		// TODO: Implement record embed view
-		// This requires hydrating the embedded record, which is complex
-		// For now, return nil to skip these embeds
-		return nil
-	}
-
-	// Handle record with media (quote post with images/external)
-	if embed.EmbedRecordWithMedia != nil {
-		// TODO: Implement record with media embed view
-		// This combines record hydration with media conversion
-		return nil
-	}
-
-	return nil
 }
 
 // GeneratorView builds a feed generator view (app.bsky.feed.defs#generatorView)

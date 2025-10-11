@@ -22,6 +22,9 @@ type ActorInfo struct {
 
 // HydrateActor hydrates full actor information
 func (h *Hydrator) HydrateActor(ctx context.Context, did string) (*ActorInfo, error) {
+	ctx, span := tracer.Start(ctx, "hydrateActor")
+	defer span.End()
+
 	// Look up handle
 	resp, err := h.dir.LookupDID(ctx, syntax.DID(did))
 	if err != nil {

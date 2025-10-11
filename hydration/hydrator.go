@@ -2,38 +2,30 @@ package hydration
 
 import (
 	"github.com/bluesky-social/indigo/atproto/identity"
+	"github.com/whyrusleeping/konbini/backend"
 	"gorm.io/gorm"
 )
 
 // Hydrator handles data hydration from the database
 type Hydrator struct {
-	db  *gorm.DB
-	dir identity.Directory
-
-	missingRecordCallback func(string, bool)
+	db      *gorm.DB
+	dir     identity.Directory
+	backend backend.RecordTracker
 }
 
 // NewHydrator creates a new Hydrator
-func NewHydrator(db *gorm.DB, dir identity.Directory) *Hydrator {
+func NewHydrator(db *gorm.DB, dir identity.Directory, backend backend.RecordTracker) *Hydrator {
 	return &Hydrator{
-		db:  db,
-		dir: dir,
+		db:      db,
+		dir:     dir,
+		backend: backend,
 	}
-}
-
-// SetMissingRecordCallback sets the callback for when a record is missing
-// The callback receives an identifier which can be:
-// - A DID (e.g., "did:plc:...") for actors/profiles
-// - An AT-URI (e.g., "at://did:plc:.../app.bsky.feed.post/...") for posts
-// - An AT-URI (e.g., "at://did:plc:.../app.bsky.feed.generator/...") for feed generators
-func (h *Hydrator) SetMissingRecordCallback(fn func(string, bool)) {
-	h.missingRecordCallback = fn
 }
 
 // AddMissingRecord reports a missing record that needs to be fetched
 func (h *Hydrator) AddMissingRecord(identifier string, wait bool) {
-	if h.missingRecordCallback != nil {
-		h.missingRecordCallback(identifier, wait)
+	if h.backend != nil {
+		h.backend.TrackMissingRecord(identifier, wait)
 	}
 }
 

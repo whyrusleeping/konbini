@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -126,6 +127,9 @@ func HandleGetAuthorFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrat
 }
 
 func hydratePostRows(ctx context.Context, hydrator *hydration.Hydrator, viewer string, rows []postRow) []*bsky.FeedDefs_FeedViewPost {
+	ctx, span := tracer.Start(ctx, "hydratePostRows")
+	defer span.End()
+
 	// Hydrate posts
 	var wg sync.WaitGroup
 
@@ -138,14 +142,23 @@ func hydratePostRows(ctx context.Context, hydrator *hydration.Hydrator, viewer s
 
 			postInfo, err := hydrator.HydratePost(ctx, row.URI, viewer)
 			if err != nil {
-				slog.Error("failed to hydrate post", "uri", row.URI, "error", err)
-				return
+				if strings.Contains(err.Error(), "post not found") {
+					hydrator.AddMissingRecord(row.URI, true)
+					postInfo, err = hydrator.HydratePost(ctx, row.URI, viewer)
+					if err != nil {
+						slog.Error("failed to hydrate post after fetch missing", "uri", row.URI, "error", err)
+						return
+					}
+				} else {
+					slog.Warn("failed to hydrate post", "uri", row.URI, "error", err)
+					return
+				}
 			}
 
-			// Hydrate author
 			authorInfo, err := hydrator.HydrateActor(ctx, postInfo.Author)
 			if err != nil {
-				slog.Error("failed to hydrate actor", "actor", postInfo.Author, "error", err)
+				hydrator.AddMissingRecord(postInfo.Author, false)
+				slog.Warn("failed to hydrate author", "did", postInfo.Author, "error", err)
 				return
 			}
 

@@ -1,17 +1,25 @@
 package feed
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/whyrusleeping/konbini/hydration"
+	"go.opentelemetry.io/otel"
 	"gorm.io/gorm"
 )
 
+var tracer = otel.Tracer("xrpc/feed")
+
 // HandleGetTimeline implements app.bsky.feed.getTimeline
 func HandleGetTimeline(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator) error {
+	ctx := c.Request().Context()
+	ctx, span := tracer.Start(ctx, "getTimeline")
+	defer span.End()
+
 	viewer := getUserDID(c)
 	if viewer == "" {
 		return c.JSON(http.StatusUnauthorized, map[string]any{
@@ -36,8 +44,6 @@ func HandleGetTimeline(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator
 		}
 	}
 
-	ctx := c.Request().Context()
-
 	// Get viewer's repo ID
 	var viewerRepoID uint
 	if err := db.Raw("SELECT id FROM repos WHERE did = ?", viewer).Scan(&viewerRepoID).Error; err != nil {
@@ -48,21 +54,8 @@ func HandleGetTimeline(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator
 	}
 
 	// Query posts from followed users
-	var rows []postRow
-	err := db.Raw(`
-		SELECT
-			'at://' || r.did || '/app.bsky.feed.post/' || p.rkey as uri,
-			p.author as author_id
-		FROM posts p
-		JOIN repos r ON r.id = p.author
-		WHERE p.reply_to = 0
-		AND p.author IN (SELECT subject FROM follows WHERE author = ?)
-		AND p.created < ?
-		AND p.not_found = false
-		ORDER BY p.created DESC
-		LIMIT ?
-	`, viewerRepoID, cursor, limit).Scan(&rows).Error
 
+	rows, err := getTimelinePosts(ctx, db, viewerRepoID, cursor, limit)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{
 			"error":   "InternalError",
@@ -93,4 +86,29 @@ func HandleGetTimeline(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator
 		"feed":   feed,
 		"cursor": nextCursor,
 	})
+}
+
+func getTimelinePosts(ctx context.Context, db *gorm.DB, uid uint, cursor time.Time, limit int) ([]postRow, error) {
+	ctx, span := tracer.Start(ctx, "getTimelineQuery")
+	defer span.End()
+
+	var rows []postRow
+	err := db.Raw(`
+		SELECT
+			'at://' || r.did || '/app.bsky.feed.post/' || p.rkey as uri,
+			p.author as author_id
+		FROM posts p
+		JOIN repos r ON r.id = p.author
+		WHERE p.reply_to = 0
+		AND p.author IN (SELECT subject FROM follows WHERE author = ?)
+		AND p.created < ?
+		AND p.not_found = false
+		ORDER BY p.created DESC
+		LIMIT ?
+	`, uid, cursor, limit).Scan(&rows).Error
+
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
 }

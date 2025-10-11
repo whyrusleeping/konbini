@@ -56,10 +56,8 @@ func NewServer(db *gorm.DB, dir identity.Directory, backend Backend) *Server {
 		db:       db,
 		dir:      dir,
 		backend:  backend,
-		hydrator: hydration.NewHydrator(db, dir),
+		hydrator: hydration.NewHydrator(db, dir, backend),
 	}
-
-	s.hydrator.SetMissingRecordCallback(backend.TrackMissingRecord)
 
 	// Register XRPC endpoints
 	s.registerEndpoints()

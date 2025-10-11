@@ -151,7 +151,7 @@ func HandleGetFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator, di
 	}
 
 	// Hydrate the posts from the skeleton
-	posts := make([]*bsky.FeedDefs_FeedViewPost, 0, len(skeleton.Feed))
+	posts := make([]*bsky.FeedDefs_FeedViewPost, len(skeleton.Feed))
 	var wg sync.WaitGroup
 	for i := range skeleton.Feed {
 		wg.Add(1)
@@ -181,6 +181,7 @@ func HandleGetFeed(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator, di
 
 			authorInfo, err := hydrator.HydrateActor(ctx, postInfo.Author)
 			if err != nil {
+				hydrator.AddMissingRecord(postInfo.Author, false)
 				slog.Warn("failed to hydrate author", "did", postInfo.Author, "error", err)
 				return
 			}
