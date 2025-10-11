@@ -9,6 +9,7 @@ import (
 
 	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/bluesky-social/indigo/lex/util"
+	"github.com/whyrusleeping/market/models"
 	"go.opentelemetry.io/otel"
 )
 
@@ -39,25 +40,10 @@ func (h *Hydrator) HydratePost(ctx context.Context, uri string, viewerDID string
 	defer span.End()
 
 	// Query post from database
-	var dbPost struct {
-		ID         uint
-		Cid        string
-		Raw        []byte
-		NotFound   bool
-		ReplyTo    uint
-		ReplyToUsr uint
-		InThread   uint
-		AuthorID   uint
-	}
-
-	err := h.db.Raw(`
-		SELECT p.id, p.cid, p.raw, p.not_found, p.reply_to, p.reply_to_usr, p.in_thread, p.author as author_id
-		FROM posts p
-		WHERE p.id = (
-			SELECT id FROM posts
+	var dbPost models.Post
+	err := h.db.Raw(`SELECT * FROM posts
 			WHERE author = (SELECT id FROM repos WHERE did = ?)
 			AND rkey = ?
-		)
 	`, extractDIDFromURI(uri), extractRkeyFromURI(uri)).Scan(&dbPost).Error
 
 	if err != nil {
@@ -77,14 +63,11 @@ func (h *Hydrator) HydratePost(ctx context.Context, uri string, viewerDID string
 	var wg sync.WaitGroup
 
 	// Get author DID
-	var authorDID string
-	var likes, reposts, replies int
 
-	wg.Go(func() {
-		h.db.Raw("SELECT did FROM repos WHERE id = ?", dbPost.AuthorID).Scan(&authorDID)
-	})
+	authorDID := extractDIDFromURI(uri)
 
 	// Get engagement counts
+	var likes, reposts, replies int
 	wg.Go(func() {
 		h.db.Raw("SELECT COUNT(*) FROM likes WHERE subject = ?", dbPost.ID).Scan(&likes)
 	})
@@ -94,6 +77,25 @@ func (h *Hydrator) HydratePost(ctx context.Context, uri string, viewerDID string
 	wg.Go(func() {
 		h.db.Raw("SELECT COUNT(*) FROM posts WHERE reply_to = ?", dbPost.ID).Scan(&replies)
 	})
+
+	// Check if viewer liked this post
+	var likeRkey string
+	if viewerDID != "" {
+		wg.Go(func() {
+			h.db.Raw(`
+			SELECT l.rkey FROM likes l
+			WHERE l.subject = ?
+			AND l.author = (SELECT id FROM repos WHERE did = ?)
+		`, dbPost.ID, viewerDID).Scan(&likeRkey)
+		})
+	}
+
+	var ei *bsky.FeedDefs_PostView_Embed
+	if feedPost.Embed != nil {
+		wg.Go(func() {
+			ei = h.formatEmbed(ctx, feedPost.Embed, authorDID, viewerDID)
+		})
+	}
 
 	wg.Wait()
 
@@ -108,6 +110,11 @@ func (h *Hydrator) HydratePost(ctx context.Context, uri string, viewerDID string
 		LikeCount:   likes,
 		RepostCount: reposts,
 		ReplyCount:  replies,
+		EmbedInfo:   ei,
+	}
+
+	if likeRkey != "" {
+		info.ViewerLike = fmt.Sprintf("at://%s/app.bsky.feed.like/%s", viewerDID, likeRkey)
 	}
 
 	if info.Cid == "" {
@@ -115,23 +122,7 @@ func (h *Hydrator) HydratePost(ctx context.Context, uri string, viewerDID string
 		info.Cid = fakeCid
 	}
 
-	// Check if viewer liked this post
-	if viewerDID != "" {
-		var likeRkey string
-		h.db.Raw(`
-			SELECT l.rkey FROM likes l
-			WHERE l.subject = ?
-			AND l.author = (SELECT id FROM repos WHERE did = ?)
-		`, dbPost.ID, viewerDID).Scan(&likeRkey)
-		if likeRkey != "" {
-			info.ViewerLike = fmt.Sprintf("at://%s/app.bsky.feed.like/%s", viewerDID, likeRkey)
-		}
-	}
-
 	// Hydrate embed
-	if feedPost.Embed != nil {
-		info.EmbedInfo = h.formatEmbed(ctx, feedPost.Embed, authorDID, viewerDID)
-	}
 
 	return info, nil
 }
