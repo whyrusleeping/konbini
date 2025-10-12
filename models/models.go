@@ -47,3 +47,8 @@ type SequenceTracker struct {
 	Key    string `gorm:"uniqueIndex"`
 	IntVal int64
 }
+
+type NotificationSeen struct {
+	Repo   uint `gorm:"uniqueindex"`
+	SeenAt time.Time
+}

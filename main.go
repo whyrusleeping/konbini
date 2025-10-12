@@ -131,6 +131,7 @@ func main() {
 		db.AutoMigrate(StarterPack{})
 		db.AutoMigrate(backend.SyncInfo{})
 		db.AutoMigrate(Notification{})
+		db.AutoMigrate(NotificationSeen{})
 		db.AutoMigrate(SequenceTracker{})
 		db.Exec("CREATE INDEX IF NOT EXISTS reposts_subject_idx ON reposts (subject)")
 		db.Exec("CREATE INDEX IF NOT EXISTS posts_reply_to_idx ON posts (reply_to)")

@@ -13,16 +13,17 @@ import (
 	lexutil "github.com/bluesky-social/indigo/lex/util"
 	"github.com/labstack/echo/v4"
 	"github.com/whyrusleeping/konbini/hydration"
+	models "github.com/whyrusleeping/konbini/models"
 	"github.com/whyrusleeping/konbini/views"
-	"github.com/whyrusleeping/market/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // HandleListNotifications implements app.bsky.notification.listNotifications
 func HandleListNotifications(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator) error {
 	viewer := getUserDID(c)
 	if viewer == "" {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+		return c.JSON(http.StatusUnauthorized, map[string]any{
 			"error":   "AuthenticationRequired",
 			"message": "authentication required",
 		})
@@ -77,7 +78,7 @@ func HandleListNotifications(c echo.Context, db *gorm.DB, hydrator *hydration.Hy
 	}
 	query += ` ORDER BY n.created_at DESC LIMIT ?`
 
-	var queryArgs []interface{}
+	var queryArgs []any
 	queryArgs = append(queryArgs, viewer)
 	if cursor > 0 {
 		queryArgs = append(queryArgs, cursor)
@@ -85,7 +86,7 @@ func HandleListNotifications(c echo.Context, db *gorm.DB, hydrator *hydration.Hy
 	queryArgs = append(queryArgs, limit)
 
 	if err := db.Raw(query, queryArgs...).Scan(&rows).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+		return c.JSON(http.StatusInternalServerError, map[string]any{
 			"error":   "InternalError",
 			"message": "failed to query notifications",
 		})
@@ -142,15 +143,33 @@ func HandleListNotifications(c echo.Context, db *gorm.DB, hydrator *hydration.Hy
 func HandleGetUnreadCount(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator) error {
 	viewer := getUserDID(c)
 	if viewer == "" {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+		return c.JSON(http.StatusUnauthorized, map[string]any{
 			"error":   "AuthenticationRequired",
 			"message": "authentication required",
 		})
 	}
 
-	// For now, return 0 - we'd need to track read state in the database
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"count": 0,
+	var repo models.Repo
+	if err := db.Find(&repo, "did = ?", viewer).Error; err != nil {
+		return err
+	}
+
+	var lastSeen time.Time
+	if err := db.Raw("SELECT seen_at FROM notification_seens WHERE repo = ?", repo.ID).Scan(&lastSeen).Error; err != nil {
+		return err
+	}
+
+	var count int
+	query := `SELECT count(*) FROM notifications WHERE created_at > ? AND for = ?`
+	if err := db.Raw(query, lastSeen, repo.ID).Scan(&count).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{
+			"error":   "InternalError",
+			"message": "failed to count unread notifications",
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"count": count,
 	})
 }
 
@@ -158,14 +177,64 @@ func HandleGetUnreadCount(c echo.Context, db *gorm.DB, hydrator *hydration.Hydra
 func HandleUpdateSeen(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator) error {
 	viewer := getUserDID(c)
 	if viewer == "" {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+		return c.JSON(http.StatusUnauthorized, map[string]any{
 			"error":   "AuthenticationRequired",
 			"message": "authentication required",
 		})
 	}
 
-	// For now, just return success - we'd need to track seen timestamps in the database
-	return c.JSON(http.StatusOK, map[string]interface{}{})
+	var body bsky.NotificationUpdateSeen_Input
+	if err := c.Bind(&body); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{
+			"error":   "InvalidRequest",
+			"message": "invalid request body",
+		})
+	}
+
+	// Parse the seenAt timestamp
+	seenAt, err := time.Parse(time.RFC3339, body.SeenAt)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{
+			"error":   "InvalidRequest",
+			"message": "invalid seenAt timestamp",
+		})
+	}
+
+	// Get the viewer's repo ID
+	var repoID uint
+	if err := db.Raw("SELECT id FROM repos WHERE did = ?", viewer).Scan(&repoID).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{
+			"error":   "InternalError",
+			"message": "failed to find viewer repo",
+		})
+	}
+
+	if repoID == 0 {
+		return c.JSON(http.StatusInternalServerError, map[string]any{
+			"error":   "InternalError",
+			"message": "viewer repo not found",
+		})
+	}
+
+	// Upsert the NotificationSeen record
+	notifSeen := models.NotificationSeen{
+		Repo:   repoID,
+		SeenAt: seenAt,
+	}
+
+	err = db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "repo"}},
+		DoUpdates: clause.AssignmentColumns([]string{"seen_at"}),
+	}).Create(&notifSeen).Error
+
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{
+			"error":   "InternalError",
+			"message": "failed to update seen timestamp",
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
 }
 
 func getUserDID(c echo.Context) string {
