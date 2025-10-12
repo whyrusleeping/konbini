@@ -39,19 +39,32 @@ func (h *Hydrator) HydratePost(ctx context.Context, uri string, viewerDID string
 	ctx, span := tracer.Start(ctx, "hydratePost")
 	defer span.End()
 
+	autoFetch, _ := ctx.Value("auto-fetch").(bool)
+
+	authorDid := extractDIDFromURI(uri)
+	r, err := h.backend.GetOrCreateRepo(ctx, authorDid)
+	if err != nil {
+		return nil, err
+	}
+
 	// Query post from database
 	var dbPost models.Post
-	err := h.db.Raw(`SELECT * FROM posts
-			WHERE author = (SELECT id FROM repos WHERE did = ?)
-			AND rkey = ?
-	`, extractDIDFromURI(uri), extractRkeyFromURI(uri)).Scan(&dbPost).Error
-
-	if err != nil {
+	if err := h.db.Raw(`SELECT * FROM posts WHERE author = ? AND rkey = ? `, r.ID, extractRkeyFromURI(uri)).Scan(&dbPost).Error; err != nil {
 		return nil, fmt.Errorf("failed to query post: %w", err)
 	}
 
 	if dbPost.NotFound || len(dbPost.Raw) == 0 {
-		return nil, fmt.Errorf("post not found")
+		if autoFetch {
+			h.AddMissingRecord(uri, true)
+			if err := h.db.Raw(`SELECT * FROM posts WHERE author = ? AND rkey = ? `, r.ID, extractRkeyFromURI(uri)).Scan(&dbPost).Error; err != nil {
+				return nil, fmt.Errorf("failed to query post: %w", err)
+			}
+			if dbPost.NotFound || len(dbPost.Raw) == 0 {
+				return nil, fmt.Errorf("post not found")
+			}
+		} else {
+			return nil, fmt.Errorf("post not found")
+		}
 	}
 
 	// Unmarshal post record
@@ -69,12 +82,18 @@ func (h *Hydrator) HydratePost(ctx context.Context, uri string, viewerDID string
 	// Get engagement counts
 	var likes, reposts, replies int
 	wg.Go(func() {
+		_, span := tracer.Start(ctx, "likeCounts")
+		defer span.End()
 		h.db.Raw("SELECT COUNT(*) FROM likes WHERE subject = ?", dbPost.ID).Scan(&likes)
 	})
 	wg.Go(func() {
+		_, span := tracer.Start(ctx, "repostCounts")
+		defer span.End()
 		h.db.Raw("SELECT COUNT(*) FROM reposts WHERE subject = ?", dbPost.ID).Scan(&reposts)
 	})
 	wg.Go(func() {
+		_, span := tracer.Start(ctx, "replyCounts")
+		defer span.End()
 		h.db.Raw("SELECT COUNT(*) FROM posts WHERE reply_to = ?", dbPost.ID).Scan(&replies)
 	})
 
@@ -82,6 +101,8 @@ func (h *Hydrator) HydratePost(ctx context.Context, uri string, viewerDID string
 	var likeRkey string
 	if viewerDID != "" {
 		wg.Go(func() {
+			_, span := tracer.Start(ctx, "viewerLikeState")
+			defer span.End()
 			h.db.Raw(`
 			SELECT l.rkey FROM likes l
 			WHERE l.subject = ?
@@ -174,6 +195,8 @@ func (h *Hydrator) formatEmbed(ctx context.Context, embed *bsky.FeedPost_Embed, 
 	if embed == nil {
 		return nil
 	}
+	_, span := tracer.Start(ctx, "formatEmbed")
+	defer span.End()
 
 	result := &bsky.FeedDefs_PostView_Embed{}
 

@@ -97,9 +97,9 @@ func (s *Server) missingRecordFetcher() {
 }
 
 func (s *Server) fetchMissingProfile(ctx context.Context, did string) error {
-	s.backend.addRelevantDid(did)
+	s.backend.AddRelevantDid(did)
 
-	repo, err := s.backend.getOrCreateRepo(ctx, did)
+	repo, err := s.backend.GetOrCreateRepo(ctx, did)
 	if err != nil {
 		return err
 	}
@@ -146,9 +146,9 @@ func (s *Server) fetchMissingPost(ctx context.Context, uri string) error {
 	collection := puri.Collection().String()
 	rkey := puri.RecordKey().String()
 
-	s.backend.addRelevantDid(did)
+	s.backend.AddRelevantDid(did)
 
-	repo, err := s.backend.getOrCreateRepo(ctx, did)
+	repo, err := s.backend.GetOrCreateRepo(ctx, did)
 	if err != nil {
 		return err
 	}
@@ -194,9 +194,9 @@ func (s *Server) fetchMissingFeedGenerator(ctx context.Context, uri string) erro
 	did := puri.Authority().String()
 	collection := puri.Collection().String()
 	rkey := puri.RecordKey().String()
-	s.backend.addRelevantDid(did)
+	s.backend.AddRelevantDid(did)
 
-	repo, err := s.backend.getOrCreateRepo(ctx, did)
+	repo, err := s.backend.GetOrCreateRepo(ctx, did)
 	if err != nil {
 		return err
 	}

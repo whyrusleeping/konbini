@@ -17,6 +17,7 @@ import (
 // HandleGetPostThreadV2 implements app.bsky.unspecced.getPostThreadV2
 func HandleGetPostThreadV2(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator) error {
 	ctx := c.Request().Context()
+	ctx = context.WithValue(ctx, "auto-fetch", true)
 
 	// Parse parameters
 	anchorRaw := c.QueryParam("anchor")

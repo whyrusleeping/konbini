@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bluesky-social/indigo/api/bsky"
+	"github.com/bluesky-social/indigo/atproto/syntax"
 	"github.com/labstack/echo/v4"
 	"github.com/whyrusleeping/konbini/hydration"
 	"github.com/whyrusleeping/konbini/views"
@@ -140,25 +141,47 @@ func hydratePostRows(ctx context.Context, hydrator *hydration.Hydrator, viewer s
 		go func(i int, row postRow) {
 			defer wg.Done()
 
-			postInfo, err := hydrator.HydratePost(ctx, row.URI, viewer)
+			puri, err := syntax.ParseATURI(row.URI)
 			if err != nil {
-				if strings.Contains(err.Error(), "post not found") {
-					hydrator.AddMissingRecord(row.URI, true)
-					postInfo, err = hydrator.HydratePost(ctx, row.URI, viewer)
-					if err != nil {
-						slog.Error("failed to hydrate post after fetch missing", "uri", row.URI, "error", err)
-						return
-					}
-				} else {
-					slog.Warn("failed to hydrate post", "uri", row.URI, "error", err)
-					return
-				}
+				slog.Error("row had invalid uri", "uri", row.URI, "error", err)
+				return
 			}
 
-			authorInfo, err := hydrator.HydrateActor(ctx, postInfo.Author)
-			if err != nil {
-				hydrator.AddMissingRecord(postInfo.Author, false)
-				slog.Warn("failed to hydrate author", "did", postInfo.Author, "error", err)
+			var subwg sync.WaitGroup
+
+			var postInfo *hydration.PostInfo
+			subwg.Go(func() {
+				pi, err := hydrator.HydratePost(ctx, row.URI, viewer)
+				if err != nil {
+					if strings.Contains(err.Error(), "post not found") {
+						hydrator.AddMissingRecord(row.URI, true)
+						pi, err = hydrator.HydratePost(ctx, row.URI, viewer)
+						if err != nil {
+							slog.Error("failed to hydrate post after fetch missing", "uri", row.URI, "error", err)
+							return
+						}
+					} else {
+						slog.Warn("failed to hydrate post", "uri", row.URI, "error", err)
+						return
+					}
+				}
+				postInfo = pi
+			})
+
+			var authorInfo *hydration.ActorInfo
+			subwg.Go(func() {
+				ai, err := hydrator.HydrateActor(ctx, puri.Authority().String())
+				if err != nil {
+					hydrator.AddMissingRecord(postInfo.Author, false)
+					slog.Warn("failed to hydrate author", "did", postInfo.Author, "error", err)
+					return
+				}
+				authorInfo = ai
+			})
+
+			subwg.Wait()
+
+			if postInfo == nil || authorInfo == nil {
 				return
 			}
 

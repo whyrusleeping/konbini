@@ -17,6 +17,7 @@ import (
 	"github.com/labstack/gommon/log"
 	"github.com/whyrusleeping/market/models"
 
+	"github.com/whyrusleeping/konbini/backend"
 	. "github.com/whyrusleeping/konbini/models"
 )
 
@@ -56,7 +57,7 @@ func (s *Server) handleGetDebugInfo(e echo.Context) error {
 
 func (s *Server) handleGetRelevantDids(e echo.Context) error {
 	return e.JSON(200, map[string]any{
-		"dids": s.backend.relevantDids,
+		"dids": s.backend.GetRelevantDids(),
 	})
 }
 
@@ -105,7 +106,7 @@ func (s *Server) handleGetPost(e echo.Context) error {
 
 	postUri := fmt.Sprintf("at://%s/app.bsky.feed.post/%s", did, rkey)
 
-	p, err := s.backend.getPostByUri(ctx, postUri, "*")
+	p, err := s.backend.GetPostByUri(ctx, postUri, "*")
 	if err != nil {
 		return err
 	}
@@ -134,13 +135,13 @@ func (s *Server) handleGetProfileView(e echo.Context) error {
 		return err
 	}
 
-	r, err := s.backend.getOrCreateRepo(ctx, accdid)
+	r, err := s.backend.GetOrCreateRepo(ctx, accdid)
 	if err != nil {
 		return err
 	}
 
 	var profile models.Profile
-	if err := s.backend.db.Find(&profile, "repo = ?", r.ID).Error; err != nil {
+	if err := s.db.Find(&profile, "repo = ?", r.ID).Error; err != nil {
 		return err
 	}
 
@@ -169,7 +170,7 @@ func (s *Server) handleGetProfilePosts(e echo.Context) error {
 		return err
 	}
 
-	r, err := s.backend.getOrCreateRepo(ctx, accdid)
+	r, err := s.backend.GetOrCreateRepo(ctx, accdid)
 	if err != nil {
 		return err
 	}
@@ -188,7 +189,7 @@ func (s *Server) handleGetProfilePosts(e echo.Context) error {
 	}
 
 	var dbposts []models.Post
-	if err := s.backend.db.Raw("SELECT * FROM posts WHERE author = ? AND created < ? ORDER BY created DESC LIMIT ?", r.ID, tcursor, limit).Scan(&dbposts).Error; err != nil {
+	if err := s.db.Raw("SELECT * FROM posts WHERE author = ? AND created < ? ORDER BY created DESC LIMIT ?", r.ID, tcursor, limit).Scan(&dbposts).Error; err != nil {
 		return err
 	}
 
@@ -258,7 +259,7 @@ type authorInfo struct {
 func (s *Server) handleGetFollowingFeed(e echo.Context) error {
 	ctx := e.Request().Context()
 
-	myr, err := s.backend.getOrCreateRepo(ctx, s.mydid)
+	myr, err := s.backend.GetOrCreateRepo(ctx, s.mydid)
 	if err != nil {
 		return err
 	}
@@ -276,7 +277,7 @@ func (s *Server) handleGetFollowingFeed(e echo.Context) error {
 		tcursor = t
 	}
 	var dbposts []models.Post
-	if err := s.backend.db.Raw("select * from posts where reply_to = 0 AND author IN (select subject from follows where author = ?) AND created < ? order by created DESC limit ?", myr.ID, tcursor, limit).Scan(&dbposts).Error; err != nil {
+	if err := s.db.Raw("select * from posts where reply_to = 0 AND author IN (select subject from follows where author = ?) AND created < ? order by created DESC limit ?", myr.ID, tcursor, limit).Scan(&dbposts).Error; err != nil {
 		return err
 	}
 
@@ -296,7 +297,7 @@ func (s *Server) handleGetFollowingFeed(e echo.Context) error {
 
 func (s *Server) getAuthorInfo(ctx context.Context, r *models.Repo) (*authorInfo, error) {
 	var profile models.Profile
-	if err := s.backend.db.Find(&profile, "repo = ?", r.ID).Error; err != nil {
+	if err := s.db.Find(&profile, "repo = ?", r.ID).Error; err != nil {
 		return nil, err
 	}
 
@@ -333,21 +334,21 @@ func (s *Server) getPostCounts(ctx context.Context, pid uint) (*postCounts, erro
 
 	go func() {
 		defer wg.Done()
-		if err := s.backend.db.Raw("SELECT count(*) FROM likes WHERE subject = ?", pid).Scan(&pc.Likes).Error; err != nil {
+		if err := s.db.Raw("SELECT count(*) FROM likes WHERE subject = ?", pid).Scan(&pc.Likes).Error; err != nil {
 			slog.Error("failed to get likes count", "post", pid, "error", err)
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		if err := s.backend.db.Raw("SELECT count(*) FROM reposts WHERE subject = ?", pid).Scan(&pc.Reposts).Error; err != nil {
+		if err := s.db.Raw("SELECT count(*) FROM reposts WHERE subject = ?", pid).Scan(&pc.Reposts).Error; err != nil {
 			slog.Error("failed to get reposts count", "post", pid, "error", err)
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		if err := s.backend.db.Raw("SELECT count(*) FROM posts WHERE reply_to = ?", pid).Scan(&pc.Replies).Error; err != nil {
+		if err := s.db.Raw("SELECT count(*) FROM posts WHERE reply_to = ?", pid).Scan(&pc.Replies).Error; err != nil {
 			slog.Error("failed to get replies count", "post", pid, "error", err)
 		}
 	}()
@@ -366,7 +367,7 @@ func (s *Server) hydratePosts(ctx context.Context, dbposts []models.Post) []post
 		go func(ix int) {
 			defer wg.Done()
 			p := dbposts[ix]
-			r, err := s.backend.getRepoByID(ctx, p.Author)
+			r, err := s.backend.GetRepoByID(ctx, p.Author)
 			if err != nil {
 				fmt.Println("failed to get repo: ", err)
 				posts[ix] = postResponse{
@@ -434,7 +435,7 @@ func (s *Server) hydratePosts(ctx context.Context, dbposts []models.Post) []post
 
 func (s *Server) checkViewerLike(ctx context.Context, pid uint) *viewerLike {
 	var like Like
-	if err := s.backend.db.Raw("SELECT * FROM likes WHERE subject = ? AND author = ?", pid, s.myrepo.ID).Scan(&like).Error; err != nil {
+	if err := s.db.Raw("SELECT * FROM likes WHERE subject = ? AND author = ?", pid, s.myrepo.ID).Scan(&like).Error; err != nil {
 		slog.Error("failed to lookup like", "error", err)
 		return nil
 	}
@@ -511,7 +512,7 @@ func (s *Server) hydrateQuotedPost(ctx context.Context, embedRecord *bsky.EmbedR
 	quotedURI := embedRecord.Record.Uri
 	quotedCid := embedRecord.Record.Cid
 
-	quotedPost, err := s.backend.getPostByUri(ctx, quotedURI, "*")
+	quotedPost, err := s.backend.GetPostByUri(ctx, quotedURI, "*")
 	if err != nil {
 		slog.Warn("failed to get quoted post", "uri", quotedURI, "error", err)
 		s.addMissingPost(ctx, quotedURI)
@@ -529,7 +530,7 @@ func (s *Server) hydrateQuotedPost(ctx context.Context, embedRecord *bsky.EmbedR
 		return s.buildQuoteFallback(quotedURI, quotedCid)
 	}
 
-	quotedRepo, err := s.backend.getRepoByID(ctx, quotedPost.Author)
+	quotedRepo, err := s.backend.GetRepoByID(ctx, quotedPost.Author)
 	if err != nil {
 		slog.Warn("failed to get quoted post author", "error", err)
 		return s.buildQuoteFallback(quotedURI, quotedCid)
@@ -576,7 +577,7 @@ func (s *Server) handleGetThread(e echo.Context) error {
 
 	// Get the requested post to find the thread root
 	var requestedPost models.Post
-	if err := s.backend.db.Find(&requestedPost, "id = ?", postID).Error; err != nil {
+	if err := s.db.Find(&requestedPost, "id = ?", postID).Error; err != nil {
 		return err
 	}
 
@@ -595,14 +596,14 @@ func (s *Server) handleGetThread(e echo.Context) error {
 	// Get all posts in this thread
 	var dbposts []models.Post
 	query := "SELECT * FROM posts WHERE id = ? OR in_thread = ? ORDER BY created ASC"
-	if err := s.backend.db.Raw(query, rootPostID, rootPostID).Scan(&dbposts).Error; err != nil {
+	if err := s.db.Raw(query, rootPostID, rootPostID).Scan(&dbposts).Error; err != nil {
 		return err
 	}
 
 	// Build response for each post
 	posts := []postResponse{}
 	for _, p := range dbposts {
-		r, err := s.backend.getRepoByID(ctx, p.Author)
+		r, err := s.backend.GetRepoByID(ctx, p.Author)
 		if err != nil {
 			return err
 		}
@@ -676,13 +677,13 @@ func (s *Server) handleGetPostLikes(e echo.Context) error {
 
 	// Get all likes for this post
 	var likes []models.Like
-	if err := s.backend.db.Find(&likes, "subject = ?", postID).Error; err != nil {
+	if err := s.db.Find(&likes, "subject = ?", postID).Error; err != nil {
 		return err
 	}
 
 	users := []engagementUser{}
 	for _, like := range likes {
-		r, err := s.backend.getRepoByID(ctx, like.Author)
+		r, err := s.backend.GetRepoByID(ctx, like.Author)
 		if err != nil {
 			slog.Error("failed to get repo for like author", "error", err)
 			continue
@@ -697,7 +698,7 @@ func (s *Server) handleGetPostLikes(e echo.Context) error {
 
 		// Get profile if available
 		var profile models.Profile
-		s.backend.db.Find(&profile, "repo = ?", r.ID)
+		s.db.Find(&profile, "repo = ?", r.ID)
 
 		var prof *bsky.ActorProfile
 		if len(profile.Raw) > 0 {
@@ -736,13 +737,13 @@ func (s *Server) handleGetPostReposts(e echo.Context) error {
 
 	// Get all reposts for this post
 	var reposts []models.Repost
-	if err := s.backend.db.Find(&reposts, "subject = ?", postID).Error; err != nil {
+	if err := s.db.Find(&reposts, "subject = ?", postID).Error; err != nil {
 		return err
 	}
 
 	users := []engagementUser{}
 	for _, repost := range reposts {
-		r, err := s.backend.getRepoByID(ctx, repost.Author)
+		r, err := s.backend.GetRepoByID(ctx, repost.Author)
 		if err != nil {
 			slog.Error("failed to get repo for repost author", "error", err)
 			continue
@@ -757,7 +758,7 @@ func (s *Server) handleGetPostReposts(e echo.Context) error {
 
 		// Get profile if available
 		var profile models.Profile
-		s.backend.db.Find(&profile, "repo = ?", r.ID)
+		s.db.Find(&profile, "repo = ?", r.ID)
 
 		var prof *bsky.ActorProfile
 		if len(profile.Raw) > 0 {
@@ -796,7 +797,7 @@ func (s *Server) handleGetPostReplies(e echo.Context) error {
 
 	// Get all replies to this post
 	var replies []models.Post
-	if err := s.backend.db.Find(&replies, "reply_to = ?", postID).Error; err != nil {
+	if err := s.db.Find(&replies, "reply_to = ?", postID).Error; err != nil {
 		return err
 	}
 
@@ -810,7 +811,7 @@ func (s *Server) handleGetPostReplies(e echo.Context) error {
 		}
 		seen[reply.Author] = true
 
-		r, err := s.backend.getRepoByID(ctx, reply.Author)
+		r, err := s.backend.GetRepoByID(ctx, reply.Author)
 		if err != nil {
 			slog.Error("failed to get repo for reply author", "error", err)
 			continue
@@ -825,7 +826,7 @@ func (s *Server) handleGetPostReplies(e echo.Context) error {
 
 		// Get profile if available
 		var profile models.Profile
-		s.backend.db.Find(&profile, "repo = ?", r.ID)
+		s.db.Find(&profile, "repo = ?", r.ID)
 
 		var prof *bsky.ActorProfile
 		if len(profile.Raw) > 0 {
@@ -932,11 +933,11 @@ func (s *Server) handleGetNotifications(e echo.Context) error {
 	query := `SELECT * FROM notifications WHERE "for" = ?`
 	if cursorID > 0 {
 		query += ` AND id < ?`
-		if err := s.backend.db.Raw(query+" ORDER BY created_at DESC LIMIT ?", s.myrepo.ID, cursorID, limit).Scan(&notifications).Error; err != nil {
+		if err := s.db.Raw(query+" ORDER BY created_at DESC LIMIT ?", s.myrepo.ID, cursorID, limit).Scan(&notifications).Error; err != nil {
 			return err
 		}
 	} else {
-		if err := s.backend.db.Raw(query+" ORDER BY created_at DESC LIMIT ?", s.myrepo.ID, limit).Scan(&notifications).Error; err != nil {
+		if err := s.db.Raw(query+" ORDER BY created_at DESC LIMIT ?", s.myrepo.ID, limit).Scan(&notifications).Error; err != nil {
 			return err
 		}
 	}
@@ -945,7 +946,7 @@ func (s *Server) handleGetNotifications(e echo.Context) error {
 	results := []notificationResponse{}
 	for _, notif := range notifications {
 		// Get author info
-		author, err := s.backend.getRepoByID(ctx, notif.Author)
+		author, err := s.backend.GetRepoByID(ctx, notif.Author)
 		if err != nil {
 			slog.Error("failed to get repo for notification author", "error", err)
 			continue
@@ -966,9 +967,9 @@ func (s *Server) handleGetNotifications(e echo.Context) error {
 		}
 
 		// Try to get source post preview for reply/mention notifications
-		if notif.Kind == NotifKindReply || notif.Kind == NotifKindMention {
+		if notif.Kind == backend.NotifKindReply || notif.Kind == backend.NotifKindMention {
 			// Parse URI to get post
-			p, err := s.backend.getPostByUri(ctx, notif.Source, "*")
+			p, err := s.backend.GetPostByUri(ctx, notif.Source, "*")
 			if err == nil && p.Raw != nil && len(p.Raw) > 0 {
 				var fp bsky.FeedPost
 				if err := fp.UnmarshalCBOR(bytes.NewReader(p.Raw)); err == nil {

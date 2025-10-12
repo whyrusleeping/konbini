@@ -25,12 +25,12 @@ import (
 	"github.com/bluesky-social/indigo/util/cliutil"
 	xrpclib "github.com/bluesky-social/indigo/xrpc"
 	"github.com/gorilla/websocket"
-	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/ipfs/go-cid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/urfave/cli/v2"
+	"github.com/whyrusleeping/konbini/backend"
 	"github.com/whyrusleeping/konbini/xrpc"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -38,16 +38,11 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
+	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
 	. "github.com/whyrusleeping/konbini/models"
 )
-
-var handleOpHist = promauto.NewHistogramVec(prometheus.HistogramOpts{
-	Name:    "handle_op_duration",
-	Help:    "A histogram of op handling durations",
-	Buckets: prometheus.ExponentialBuckets(1, 2, 15),
-}, []string{"op", "collection"})
 
 var firehoseCursorGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 	Name: "firehose_cursor",
@@ -134,15 +129,13 @@ func main() {
 		db.AutoMigrate(Image{})
 		db.AutoMigrate(PostGate{})
 		db.AutoMigrate(StarterPack{})
-		db.AutoMigrate(SyncInfo{})
+		db.AutoMigrate(backend.SyncInfo{})
 		db.AutoMigrate(Notification{})
 		db.AutoMigrate(SequenceTracker{})
+		db.Exec("CREATE INDEX IF NOT EXISTS reposts_subject_idx ON reposts (subject)")
+		db.Exec("CREATE INDEX IF NOT EXISTS posts_reply_to_idx ON posts (reply_to)")
 
 		ctx := context.TODO()
-
-		rc, _ := lru.New2Q[string, *Repo](1_000_000)
-		pc, _ := lru.New2Q[string, cachedPostInfo](1_000_000)
-		revc, _ := lru.New2Q[uint, string](1_000_000)
 
 		cfg, err := pgxpool.ParseConfig(cctx.String("db-url"))
 		if err != nil {
@@ -206,27 +199,24 @@ func main() {
 			dir:    dir,
 
 			missingRecords: make(chan MissingRecord, 1024),
+			db:             db,
 		}
 		fmt.Println("MY DID: ", s.mydid)
 
-		pgb := &PostgresBackend{
-			relevantDids:  make(map[string]bool),
-			s:             s,
-			db:            db,
-			postInfoCache: pc,
-			repoCache:     rc,
-			revCache:      revc,
-			pgx:           pool,
+		pgb, err := backend.NewPostgresBackend(mydid, db, pool, cc, nil)
+		if err != nil {
+			return err
 		}
+
 		s.backend = pgb
 
-		myrepo, err := s.backend.getOrCreateRepo(ctx, mydid)
+		myrepo, err := s.backend.GetOrCreateRepo(ctx, mydid)
 		if err != nil {
 			return fmt.Errorf("failed to get repo record for our own did: %w", err)
 		}
 		s.myrepo = myrepo
 
-		if err := s.backend.loadRelevantDids(); err != nil {
+		if err := s.backend.LoadRelevantDids(); err != nil {
 			return fmt.Errorf("failed to load relevant dids set: %w", err)
 		}
 
@@ -264,7 +254,7 @@ func main() {
 }
 
 type Server struct {
-	backend *PostgresBackend
+	backend *backend.PostgresBackend
 
 	dir identity.Directory
 
@@ -277,6 +267,8 @@ type Server struct {
 
 	mpLk           sync.Mutex
 	missingRecords chan MissingRecord
+
+	db *gorm.DB
 }
 
 func (s *Server) getXrpcClient() (*xrpclib.Client, error) {
@@ -332,7 +324,7 @@ func (s *Server) startLiveTail(ctx context.Context, curs int, parWorkers, maxQ i
 				s.lastSeq = evt.Seq
 
 				if evt.Seq%1000 == 0 {
-					if err := storeLastSeq(s.backend.db, "firehose_seq", evt.Seq); err != nil {
+					if err := storeLastSeq(s.db, "firehose_seq", evt.Seq); err != nil {
 						fmt.Println("failed to store seqno: ", err)
 					}
 				}
@@ -392,30 +384,13 @@ func (s *Server) resolveAccountIdent(ctx context.Context, acc string) (string, e
 	return resp.DID.String(), nil
 }
 
-const (
-	NotifKindReply   = "reply"
-	NotifKindLike    = "like"
-	NotifKindMention = "mention"
-	NotifKindRepost  = "repost"
-)
-
-func (s *Server) AddNotification(ctx context.Context, forUser, author uint, recordUri string, recordCid cid.Cid, kind string) error {
-	return s.backend.db.Create(&Notification{
-		For:       forUser,
-		Author:    author,
-		Source:    recordUri,
-		SourceCid: recordCid.String(),
-		Kind:      kind,
-	}).Error
-}
-
 func (s *Server) rescanRepo(ctx context.Context, did string) error {
 	resp, err := s.dir.LookupDID(ctx, syntax.DID(did))
 	if err != nil {
 		return err
 	}
 
-	s.backend.addRelevantDid(did)
+	s.backend.AddRelevantDid(did)
 
 	c := &xrpclib.Client{
 		Host: resp.PDSEndpoint(),

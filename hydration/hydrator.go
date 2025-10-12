@@ -10,11 +10,11 @@ import (
 type Hydrator struct {
 	db      *gorm.DB
 	dir     identity.Directory
-	backend backend.RecordTracker
+	backend *backend.PostgresBackend
 }
 
 // NewHydrator creates a new Hydrator
-func NewHydrator(db *gorm.DB, dir identity.Directory, backend backend.RecordTracker) *Hydrator {
+func NewHydrator(db *gorm.DB, dir identity.Directory, backend *backend.PostgresBackend) *Hydrator {
 	return &Hydrator{
 		db:      db,
 		dir:     dir,

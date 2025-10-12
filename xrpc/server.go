@@ -1,13 +1,16 @@
 package xrpc
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
 	"github.com/bluesky-social/indigo/atproto/identity"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/whyrusleeping/konbini/backend"
 	"github.com/whyrusleeping/konbini/hydration"
+	"github.com/whyrusleeping/konbini/models"
 	"github.com/whyrusleeping/konbini/xrpc/actor"
 	"github.com/whyrusleeping/konbini/xrpc/feed"
 	"github.com/whyrusleeping/konbini/xrpc/graph"
@@ -32,10 +35,11 @@ type Backend interface {
 	// Add methods as needed for data access
 
 	TrackMissingRecord(identifier string, wait bool)
+	GetOrCreateRepo(ctx context.Context, did string) (*models.Repo, error)
 }
 
 // NewServer creates a new XRPC server
-func NewServer(db *gorm.DB, dir identity.Directory, backend Backend) *Server {
+func NewServer(db *gorm.DB, dir identity.Directory, backend *backend.PostgresBackend) *Server {
 	e := echo.New()
 	e.HidePort = true
 	e.HideBanner = true
