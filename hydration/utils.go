@@ -30,10 +30,10 @@ func (h *Hydrator) NormalizeUri(ctx context.Context, uri string) (string, error)
 }
 
 func (h *Hydrator) UriForPost(ctx context.Context, p *models.Post) (string, error) {
-	r, err := h.backend.GetRepoByID(ctx, p.Author)
+	did, err := h.backend.DidFromID(ctx, p.Author)
 	if err != nil {
 		return "", err
 	}
 
-	return fmt.Sprintf("at://%s/app.bsky.feed.post/%s", r.Did, p.Rkey), nil
+	return fmt.Sprintf("at://%s/app.bsky.feed.post/%s", did, p.Rkey), nil
 }

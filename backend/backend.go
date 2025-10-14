@@ -43,6 +43,8 @@ type PostgresBackend struct {
 	repoCache *lru.TwoQueueCache[string, *Repo]
 	reposLk   sync.Mutex
 
+	didByIDCache *lru.TwoQueueCache[uint, string]
+
 	postInfoCache *lru.TwoQueueCache[string, cachedPostInfo]
 }
 
@@ -56,6 +58,7 @@ func NewPostgresBackend(mydid string, db *gorm.DB, pgx *pgxpool.Pool, client *xr
 	rc, _ := lru.New2Q[string, *Repo](1_000_000)
 	pc, _ := lru.New2Q[string, cachedPostInfo](1_000_000)
 	revc, _ := lru.New2Q[uint, string](1_000_000)
+	dbic, _ := lru.New2Q[uint, string](1_000_000)
 
 	b := &PostgresBackend{
 		client:        client,
@@ -67,6 +70,7 @@ func NewPostgresBackend(mydid string, db *gorm.DB, pgx *pgxpool.Pool, client *xr
 		repoCache:     rc,
 		postInfoCache: pc,
 		revCache:      revc,
+		didByIDCache:  dbic,
 	}
 
 	r, err := b.GetOrCreateRepo(context.TODO(), mydid)
@@ -363,6 +367,21 @@ func (b *PostgresBackend) GetRepoByID(ctx context.Context, id uint) (*models.Rep
 	}
 
 	return &r, nil
+}
+
+func (b *PostgresBackend) DidFromID(ctx context.Context, uid uint) (string, error) {
+	val, ok := b.didByIDCache.Get(uid)
+	if ok {
+		return val, nil
+	}
+
+	r, err := b.GetRepoByID(ctx, uid)
+	if err != nil {
+		return "", err
+	}
+
+	b.didByIDCache.Add(uid, r.Did)
+	return r.Did, nil
 }
 
 func (b *PostgresBackend) checkPostExists(ctx context.Context, repo *Repo, rkey string) (bool, error) {

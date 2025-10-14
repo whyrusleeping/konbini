@@ -135,6 +135,7 @@ func main() {
 		db.AutoMigrate(SequenceTracker{})
 		db.Exec("CREATE INDEX IF NOT EXISTS reposts_subject_idx ON reposts (subject)")
 		db.Exec("CREATE INDEX IF NOT EXISTS posts_reply_to_idx ON posts (reply_to)")
+		db.Exec("CREATE INDEX IF NOT EXISTS posts_in_thread_idx ON posts (in_thread)")
 
 		ctx := context.TODO()
 

@@ -7,18 +7,23 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/labstack/echo/v4"
 	"github.com/whyrusleeping/konbini/hydration"
 	"github.com/whyrusleeping/konbini/views"
 	"github.com/whyrusleeping/market/models"
+	"go.opentelemetry.io/otel"
 	"gorm.io/gorm"
 )
 
+var tracer = otel.Tracer("xrpc/unspecced")
+
 // HandleGetPostThreadV2 implements app.bsky.unspecced.getPostThreadV2
 func HandleGetPostThreadV2(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator) error {
-	ctx := c.Request().Context()
+	ctx, span := tracer.Start(c.Request().Context(), "getPostThreadV2")
+	defer span.End()
 	ctx = context.WithValue(ctx, "auto-fetch", true)
 
 	// Parse parameters
@@ -152,19 +157,40 @@ func collectReplies(ctx context.Context, hydrator *hydration.Hydrator, curnode *
 		return nil, nil
 	}
 
+	type parThreadResults struct {
+		node     *bsky.UnspeccedGetPostThreadV2_ThreadItem
+		children []*bsky.UnspeccedGetPostThreadV2_ThreadItem
+	}
+
+	results := make([]parThreadResults, len(curnode.children))
+
+	var wg sync.WaitGroup
+	for i := range curnode.children {
+		ix := i
+		wg.Go(func() {
+			child := curnode.children[ix]
+
+			results[ix].node = buildThreadItem(ctx, hydrator, child, depth+1, viewer)
+			if child.missing {
+				return
+			}
+
+			sub, err := collectReplies(ctx, hydrator, child, depth+1, below-1, branchingFactor, sort, viewer)
+			if err != nil {
+				slog.Error("failed to collect replies", "node", child.uri, "error", err)
+				return
+			}
+
+			results[ix].children = sub
+		})
+	}
+
+	wg.Wait()
+
 	var out []*bsky.UnspeccedGetPostThreadV2_ThreadItem
-	for _, child := range curnode.children {
-		out = append(out, buildThreadItem(ctx, hydrator, child, depth+1, viewer))
-		if child.missing {
-			continue
-		}
-
-		sub, err := collectReplies(ctx, hydrator, child, depth+1, below-1, branchingFactor, sort, viewer)
-		if err != nil {
-			return nil, err
-		}
-
-		out = append(out, sub...)
+	for _, res := range results {
+		out = append(out, res.node)
+		out = append(out, res.children...)
 	}
 
 	return out, nil
