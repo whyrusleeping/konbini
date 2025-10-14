@@ -1,6 +1,7 @@
 package unspecced
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/whyrusleeping/konbini/hydration"
 	"github.com/whyrusleeping/konbini/views"
+	"github.com/whyrusleeping/market/models"
 	"gorm.io/gorm"
 )
 
@@ -69,77 +71,24 @@ func HandleGetPostThreadV2(c echo.Context, db *gorm.DB, hydrator *hydration.Hydr
 		})
 	}
 
-	// Determine the root post ID for the thread
-	rootPostID := anchorPostInfo.InThread
-	if rootPostID == 0 {
-		// This post is the root - get its ID
-		var postID uint
-		db.Raw(`
-			SELECT id FROM posts
-			WHERE author = (SELECT id FROM repos WHERE did = ?)
-			AND rkey = ?
-		`, extractDIDFromURI(anchorUri), extractRkeyFromURI(anchorUri)).Scan(&postID)
-		rootPostID = postID
+	threadID := anchorPostInfo.InThread
+	if threadID == 0 {
+		threadID = anchorPostInfo.ID
 	}
 
-	// Query all posts in this thread
-	type threadPostRow struct {
-		ID        uint
-		Rkey      string
-		ReplyTo   uint
-		InThread  uint
-		AuthorDid string
-	}
-	var threadPosts []threadPostRow
-	db.Raw(`
-		SELECT p.id, p.rkey, p.reply_to, p.in_thread, r.did as author_did
-		FROM posts p
-		JOIN repos r ON r.id = p.author
-		WHERE (p.id = ? OR p.in_thread = ?)
-		AND p.not_found = false
-		ORDER BY p.created ASC
-	`, rootPostID, rootPostID).Scan(&threadPosts)
-
-	// Build a map of posts by ID
-	postsByID := make(map[uint]*threadNode)
-	for _, tp := range threadPosts {
-		uri := fmt.Sprintf("at://%s/app.bsky.feed.post/%s", tp.AuthorDid, tp.Rkey)
-		postsByID[tp.ID] = &threadNode{
-			id:       tp.ID,
-			uri:      uri,
-			replyTo:  tp.ReplyTo,
-			inThread: tp.InThread,
-			children: []*threadNode{},
-		}
+	var threadPosts []*models.Post
+	if err := db.Raw("SELECT * FROM posts WHERE in_thread = ? OR id = ?", threadID, anchorPostInfo.ID).Scan(&threadPosts).Error; err != nil {
+		return err
 	}
 
-	// Build parent-child relationships
-	for _, node := range postsByID {
-		if node.replyTo != 0 {
-			parent := postsByID[node.replyTo]
-			if parent != nil {
-				parent.children = append(parent.children, node)
-			}
-		}
+	fmt.Println("GOT THREAD POSTS: ", len(threadPosts))
+
+	treeNodes, err := buildThreadTree(ctx, hydrator, db, threadPosts)
+	if err != nil {
+		return fmt.Errorf("failed to construct tree: %w", err)
 	}
 
-	// Find the anchor node
-	anchorID := uint(0)
-	for id, node := range postsByID {
-		if node.uri == anchorUri {
-			anchorID = id
-			break
-		}
-	}
-
-	if anchorID == 0 {
-		return c.JSON(http.StatusNotFound, map[string]interface{}{
-			"error":   "NotFound",
-			"message": "anchor post not found in thread",
-		})
-	}
-
-	anchorNode := postsByID[anchorID]
+	anchor := treeNodes[anchorPostInfo.ID]
 
 	// Build flat thread items list
 	var threadItems []*bsky.UnspeccedGetPostThreadV2_ThreadItem
@@ -147,27 +96,49 @@ func HandleGetPostThreadV2(c echo.Context, db *gorm.DB, hydrator *hydration.Hydr
 
 	// Add parents if requested
 	if above {
-		parents := collectParents(anchorNode, postsByID)
-		for i := len(parents) - 1; i >= 0; i-- {
-			depth := int64(-(len(parents) - i))
-			item := buildThreadItem(ctx, hydrator, parents[i], depth, viewer)
+		parent := anchor.parent
+		depth := int64(-1)
+		for parent != nil {
+			if parent.missing {
+				fmt.Println("Parent missing: ", depth)
+				item := &bsky.UnspeccedGetPostThreadV2_ThreadItem{
+					Depth: depth,
+					Uri:   parent.uri,
+					Value: &bsky.UnspeccedGetPostThreadV2_ThreadItem_Value{
+						UnspeccedDefs_ThreadItemNotFound: &bsky.UnspeccedDefs_ThreadItemNotFound{
+							LexiconTypeID: "app.bsky.unspecced.defs#threadItemNotFound",
+						},
+					},
+				}
+
+				threadItems = append(threadItems, item)
+				break
+			}
+
+			item := buildThreadItem(ctx, hydrator, parent, depth, viewer)
 			if item != nil {
 				threadItems = append(threadItems, item)
 			}
+
+			parent = parent.parent
+			depth--
 		}
 	}
 
 	// Add anchor post (depth 0)
-	anchorItem := buildThreadItem(ctx, hydrator, anchorNode, 0, viewer)
+	anchorItem := buildThreadItem(ctx, hydrator, anchor, 0, viewer)
 	if anchorItem != nil {
 		threadItems = append(threadItems, anchorItem)
 	}
 
 	// Add replies below anchor
 	if below > 0 {
-		replies, hasMore := collectReplies(ctx, hydrator, anchorNode, 1, below, branchingFactor, sort, viewer)
+		replies, err := collectReplies(ctx, hydrator, anchor, 0, below, branchingFactor, sort, viewer)
+		if err != nil {
+			return err
+		}
 		threadItems = append(threadItems, replies...)
-		hasOtherReplies = hasMore
+		//hasOtherReplies = hasMore
 	}
 
 	return c.JSON(http.StatusOK, &bsky.UnspeccedGetPostThreadV2_Output{
@@ -176,71 +147,46 @@ func HandleGetPostThreadV2(c echo.Context, db *gorm.DB, hydrator *hydration.Hydr
 	})
 }
 
-type threadNode struct {
-	id       uint
-	uri      string
-	replyTo  uint
-	inThread uint
-	children []*threadNode
-}
+func collectReplies(ctx context.Context, hydrator *hydration.Hydrator, curnode *threadTree, depth int64, below int64, branchingFactor int64, sort string, viewer string) ([]*bsky.UnspeccedGetPostThreadV2_ThreadItem, error) {
+	if below == 0 {
+		return nil, nil
+	}
 
-func collectParents(node *threadNode, allNodes map[uint]*threadNode) []*threadNode {
-	var parents []*threadNode
-	current := node
-	for current.replyTo != 0 {
-		parent := allNodes[current.replyTo]
-		if parent == nil {
-			break
+	var out []*bsky.UnspeccedGetPostThreadV2_ThreadItem
+	for _, child := range curnode.children {
+		out = append(out, buildThreadItem(ctx, hydrator, child, depth+1, viewer))
+		if child.missing {
+			continue
 		}
-		parents = append(parents, parent)
-		current = parent
+
+		sub, err := collectReplies(ctx, hydrator, child, depth+1, below-1, branchingFactor, sort, viewer)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, sub...)
 	}
-	return parents
+
+	return out, nil
 }
 
-func collectReplies(ctx context.Context, hydrator *hydration.Hydrator, node *threadNode, currentDepth, maxDepth, branchingFactor int64, sort string, viewer string) ([]*bsky.UnspeccedGetPostThreadV2_ThreadItem, bool) {
-	var items []*bsky.UnspeccedGetPostThreadV2_ThreadItem
-	hasMore := false
-
-	if currentDepth > maxDepth {
-		return items, false
-	}
-
-	// Sort children based on sort parameter
-	children := node.children
-	// TODO: Actually sort based on the sort parameter (newest/oldest/top)
-	// For now, just use the order we have
-
-	// Limit to branchingFactor
-	limit := int(branchingFactor)
-	if len(children) > limit {
-		hasMore = true
-		children = children[:limit]
-	}
-
-	for _, child := range children {
-		item := buildThreadItem(ctx, hydrator, child, currentDepth, viewer)
-		if item != nil {
-			items = append(items, item)
-
-			// Recursively collect replies
-			if currentDepth < maxDepth {
-				childReplies, childHasMore := collectReplies(ctx, hydrator, child, currentDepth+1, maxDepth, branchingFactor, sort, viewer)
-				items = append(items, childReplies...)
-				if childHasMore {
-					hasMore = true
-				}
-			}
+func buildThreadItem(ctx context.Context, hydrator *hydration.Hydrator, node *threadTree, depth int64, viewer string) *bsky.UnspeccedGetPostThreadV2_ThreadItem {
+	if node.missing {
+		return &bsky.UnspeccedGetPostThreadV2_ThreadItem{
+			Depth: depth,
+			Uri:   node.uri,
+			Value: &bsky.UnspeccedGetPostThreadV2_ThreadItem_Value{
+				UnspeccedDefs_ThreadItemNotFound: &bsky.UnspeccedDefs_ThreadItemNotFound{
+					LexiconTypeID: "app.bsky.unspecced.defs#threadItemNotFound",
+				},
+			},
 		}
 	}
 
-	return items, hasMore
-}
-
-func buildThreadItem(ctx context.Context, hydrator *hydration.Hydrator, node *threadNode, depth int64, viewer string) *bsky.UnspeccedGetPostThreadV2_ThreadItem {
 	// Hydrate the post
-	postInfo, err := hydrator.HydratePost(ctx, node.uri, viewer)
+	postInfo, err := hydrator.HydratePostDB(ctx, node.uri, node.val, viewer)
 	if err != nil {
+		slog.Error("failed to hydrate post in thread item", "uri", node.uri, "error", err)
 		// Return not found item
 		return &bsky.UnspeccedGetPostThreadV2_ThreadItem{
 			Depth: depth,
@@ -256,6 +202,7 @@ func buildThreadItem(ctx context.Context, hydrator *hydration.Hydrator, node *th
 	// Hydrate author
 	authorInfo, err := hydrator.HydrateActor(ctx, postInfo.Author)
 	if err != nil {
+		slog.Error("failed to hydrate actor in thread item", "author", postInfo.Author, "error", err)
 		return &bsky.UnspeccedGetPostThreadV2_ThreadItem{
 			Depth: depth,
 			Uri:   node.uri,
@@ -319,16 +266,71 @@ func extractDIDFromURI(uri string) string {
 	return string(parts)
 }
 
-func extractRkeyFromURI(uri string) string {
-	// URI format: at://did:plc:xxx/collection/rkey
-	if len(uri) < 5 || uri[:5] != "at://" {
-		return ""
-	}
-	// Find last slash
-	for i := len(uri) - 1; i >= 5; i-- {
-		if uri[i] == '/' {
-			return uri[i+1:]
+type threadTree struct {
+	parent   *threadTree
+	children []*threadTree
+
+	val *models.Post
+
+	missing bool
+
+	uri string
+	cid string
+}
+
+func buildThreadTree(ctx context.Context, hydrator *hydration.Hydrator, db *gorm.DB, posts []*models.Post) (map[uint]*threadTree, error) {
+	nodes := make(map[uint]*threadTree)
+	for _, p := range posts {
+		puri, err := hydrator.UriForPost(ctx, p)
+		if err != nil {
+			return nil, err
 		}
+
+		t := &threadTree{
+			val: p,
+			uri: puri,
+		}
+
+		nodes[p.ID] = t
 	}
-	return ""
+
+	missing := make(map[uint]*threadTree)
+	for _, node := range nodes {
+		if node.val.ReplyTo == 0 {
+			continue
+		}
+
+		pnode, ok := nodes[node.val.ReplyTo]
+		if !ok {
+			pnode = &threadTree{
+				missing: true,
+			}
+			missing[node.val.ReplyTo] = pnode
+
+			var bspost bsky.FeedPost
+			if err := bspost.UnmarshalCBOR(bytes.NewReader(node.val.Raw)); err != nil {
+				return nil, err
+			}
+
+			if bspost.Reply == nil || bspost.Reply.Parent == nil {
+				return nil, fmt.Errorf("node with parent had no parent in object")
+			}
+
+			pnode.uri = bspost.Reply.Parent.Uri
+			pnode.cid = bspost.Reply.Parent.Cid
+
+			/* Maybe we could force hydrate these?
+			hydrator.AddMissingRecord(puri, true)
+			*/
+		}
+
+		pnode.children = append(pnode.children, node)
+		node.parent = pnode
+	}
+
+	for k, v := range missing {
+		nodes[k] = v
+	}
+
+	return nodes, nil
 }

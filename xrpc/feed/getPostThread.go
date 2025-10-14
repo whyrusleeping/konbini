@@ -15,7 +15,7 @@ import (
 func HandleGetPostThread(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrator) error {
 	uriParam := c.QueryParam("uri")
 	if uriParam == "" {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+		return c.JSON(http.StatusBadRequest, map[string]any{
 			"error":   "InvalidRequest",
 			"message": "uri parameter is required",
 		})
@@ -27,7 +27,7 @@ func HandleGetPostThread(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrat
 	// Hydrate the requested post
 	postInfo, err := hydrator.HydratePost(ctx, uriParam, viewer)
 	if err != nil {
-		return c.JSON(http.StatusNotFound, map[string]interface{}{
+		return c.JSON(http.StatusNotFound, map[string]any{
 			"error":   "NotFound",
 			"message": "post not found",
 		})
@@ -74,7 +74,7 @@ func HandleGetPostThread(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrat
 			uri:      uri,
 			replyTo:  tp.ReplyTo,
 			inThread: tp.InThread,
-			replies:  []interface{}{},
+			replies:  []any{},
 		}
 	}
 
@@ -98,7 +98,7 @@ func HandleGetPostThread(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrat
 	}
 
 	if rootNode == nil {
-		return c.JSON(http.StatusNotFound, map[string]interface{}{
+		return c.JSON(http.StatusNotFound, map[string]any{
 			"error":   "NotFound",
 			"message": "thread root not found",
 		})
@@ -107,7 +107,7 @@ func HandleGetPostThread(c echo.Context, db *gorm.DB, hydrator *hydration.Hydrat
 	// Build the response by traversing the tree
 	thread := buildThreadView(ctx, db, rootNode, postsByID, hydrator, viewer, nil)
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	return c.JSON(http.StatusOK, map[string]any{
 		"thread": thread,
 	})
 }
@@ -117,15 +117,15 @@ type threadPostNode struct {
 	uri      string
 	replyTo  uint
 	inThread uint
-	replies  []interface{}
+	replies  []any
 }
 
-func buildThreadView(ctx context.Context, db *gorm.DB, node *threadPostNode, allNodes map[uint]*threadPostNode, hydrator *hydration.Hydrator, viewer string, parent interface{}) interface{} {
+func buildThreadView(ctx context.Context, db *gorm.DB, node *threadPostNode, allNodes map[uint]*threadPostNode, hydrator *hydration.Hydrator, viewer string, parent any) any {
 	// Hydrate this post
 	postInfo, err := hydrator.HydratePost(ctx, node.uri, viewer)
 	if err != nil {
 		// Return a notFound post
-		return map[string]interface{}{
+		return map[string]any{
 			"$type": "app.bsky.feed.defs#notFoundPost",
 			"uri":   node.uri,
 		}
@@ -134,14 +134,14 @@ func buildThreadView(ctx context.Context, db *gorm.DB, node *threadPostNode, all
 	// Hydrate author
 	authorInfo, err := hydrator.HydrateActor(ctx, postInfo.Author)
 	if err != nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"$type": "app.bsky.feed.defs#notFoundPost",
 			"uri":   node.uri,
 		}
 	}
 
 	// Build replies
-	var replies []interface{}
+	var replies []any
 	for _, replyNode := range node.replies {
 		if rn, ok := replyNode.(*threadPostNode); ok {
 			replyView := buildThreadView(ctx, db, rn, allNodes, hydrator, viewer, nil)
@@ -150,7 +150,7 @@ func buildThreadView(ctx context.Context, db *gorm.DB, node *threadPostNode, all
 	}
 
 	// Build the thread view post
-	var repliesForView interface{}
+	var repliesForView any
 	if len(replies) > 0 {
 		repliesForView = replies
 	}
