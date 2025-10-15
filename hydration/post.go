@@ -388,6 +388,9 @@ func (h *Hydrator) formatEmbed(ctx context.Context, embed *bsky.FeedPost_Embed, 
 
 // hydrateEmbeddedRecord hydrates an embedded record (for quote posts, etc.)
 func (h *Hydrator) hydrateEmbeddedRecord(ctx context.Context, uri string, viewerDID string) *bsky.EmbedRecord_View_Record {
+	ctx, span := tracer.Start(ctx, "hydrateEmbeddedRecord")
+	defer span.End()
+
 	// Check if it's a post URI
 	if !isPostURI(uri) {
 		// Could be a feed generator, list, labeler, or starter pack

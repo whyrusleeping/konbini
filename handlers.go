@@ -146,7 +146,7 @@ func (s *Server) handleGetProfileView(e echo.Context) error {
 	}
 
 	if profile.Raw == nil || len(profile.Raw) == 0 {
-		s.addMissingProfile(ctx, accdid)
+		s.backend.TrackMissingRecord(accdid, false)
 		return e.JSON(404, map[string]any{
 			"error": "missing profile info for user",
 		})
@@ -307,7 +307,7 @@ func (s *Server) getAuthorInfo(ctx context.Context, r *models.Repo) (*authorInfo
 	}
 
 	if profile.Raw == nil || len(profile.Raw) == 0 {
-		s.addMissingProfile(ctx, r.Did)
+		s.backend.TrackMissingRecord(r.Did, false)
 		return &authorInfo{
 			Handle: resp.Handle.String(),
 			Did:    r.Did,
@@ -379,7 +379,7 @@ func (s *Server) hydratePosts(ctx context.Context, dbposts []models.Post) []post
 
 			uri := fmt.Sprintf("at://%s/app.bsky.feed.post/%s", r.Did, p.Rkey)
 			if len(p.Raw) == 0 || p.NotFound {
-				s.addMissingPost(ctx, uri)
+				s.backend.TrackMissingRecord(uri, false)
 				posts[ix] = postResponse{
 					Uri:     uri,
 					Missing: true,
@@ -515,12 +515,12 @@ func (s *Server) hydrateQuotedPost(ctx context.Context, embedRecord *bsky.EmbedR
 	quotedPost, err := s.backend.GetPostByUri(ctx, quotedURI, "*")
 	if err != nil {
 		slog.Warn("failed to get quoted post", "uri", quotedURI, "error", err)
-		s.addMissingPost(ctx, quotedURI)
+		s.backend.TrackMissingRecord(quotedURI, false)
 		return s.buildQuoteFallback(quotedURI, quotedCid)
 	}
 
 	if quotedPost == nil || quotedPost.Raw == nil || len(quotedPost.Raw) == 0 || quotedPost.NotFound {
-		s.addMissingPost(ctx, quotedURI)
+		s.backend.TrackMissingRecord(quotedURI, false)
 		return s.buildQuoteFallback(quotedURI, quotedCid)
 	}
 
@@ -707,7 +707,7 @@ func (s *Server) handleGetPostLikes(e echo.Context) error {
 				prof = &p
 			}
 		} else {
-			s.addMissingProfile(ctx, r.Did)
+			s.backend.TrackMissingRecord(r.Did, false)
 		}
 
 		users = append(users, engagementUser{
@@ -767,7 +767,7 @@ func (s *Server) handleGetPostReposts(e echo.Context) error {
 				prof = &p
 			}
 		} else {
-			s.addMissingProfile(ctx, r.Did)
+			s.backend.TrackMissingRecord(r.Did, false)
 		}
 
 		users = append(users, engagementUser{
@@ -835,7 +835,7 @@ func (s *Server) handleGetPostReplies(e echo.Context) error {
 				prof = &p
 			}
 		} else {
-			s.addMissingProfile(ctx, r.Did)
+			s.backend.TrackMissingRecord(r.Did, false)
 		}
 
 		users = append(users, engagementUser{

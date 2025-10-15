@@ -200,12 +200,11 @@ func main() {
 			client: cc,
 			dir:    dir,
 
-			missingRecords: make(chan MissingRecord, 1024),
-			db:             db,
+			db: db,
 		}
 		fmt.Println("MY DID: ", s.mydid)
 
-		pgb, err := backend.NewPostgresBackend(mydid, db, pool, cc, nil)
+		pgb, err := backend.NewPostgresBackend(mydid, db, pool, cc, dir)
 		if err != nil {
 			return err
 		}
@@ -242,8 +241,6 @@ func main() {
 			http.ListenAndServe(":4445", nil)
 		}()
 
-		go s.missingRecordFetcher()
-
 		seqno, err := loadLastSeq(db, "firehose_seq")
 		if err != nil {
 			fmt.Println("failed to load sequence number, starting over", err)
@@ -267,8 +264,7 @@ type Server struct {
 	seqLk   sync.Mutex
 	lastSeq int64
 
-	mpLk           sync.Mutex
-	missingRecords chan MissingRecord
+	mpLk sync.Mutex
 
 	db *gorm.DB
 }

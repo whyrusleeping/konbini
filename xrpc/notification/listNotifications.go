@@ -131,9 +131,21 @@ func HandleListNotifications(c echo.Context, db *gorm.DB, hydrator *hydration.Hy
 		cursorPtr = &cursor
 	}
 
+	var lastSeen time.Time
+	if err := db.Raw("SELECT seen_at FROM notification_seens WHERE repo = (select id from repos where did = ?)", viewer).Scan(&lastSeen).Error; err != nil {
+		return err
+	}
+
+	var lastSeenStr *string
+	if !lastSeen.IsZero() {
+		s := lastSeen.Format(time.RFC3339)
+		lastSeenStr = &s
+	}
+
 	output := &bsky.NotificationListNotifications_Output{
 		Notifications: notifications,
 		Cursor:        cursorPtr,
+		SeenAt:        lastSeenStr,
 	}
 
 	return c.JSON(http.StatusOK, output)

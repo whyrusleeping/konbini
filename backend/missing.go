@@ -1,4 +1,4 @@
-package main
+package backend
 
 import (
 	"bytes"
@@ -19,6 +19,7 @@ const (
 	MissingRecordTypeProfile       MissingRecordType = "profile"
 	MissingRecordTypePost          MissingRecordType = "post"
 	MissingRecordTypeFeedGenerator MissingRecordType = "feedgenerator"
+	MissingRecordTypeUnknown       MissingRecordType = "unknown"
 )
 
 type MissingRecord struct {
@@ -29,13 +30,13 @@ type MissingRecord struct {
 	waitch chan struct{}
 }
 
-func (s *Server) addMissingRecord(ctx context.Context, rec MissingRecord) {
+func (b *PostgresBackend) addMissingRecord(ctx context.Context, rec MissingRecord) {
 	if rec.Wait {
 		rec.waitch = make(chan struct{})
 	}
 
 	select {
-	case s.missingRecords <- rec:
+	case b.missingRecords <- rec:
 	case <-ctx.Done():
 	}
 
@@ -47,40 +48,16 @@ func (s *Server) addMissingRecord(ctx context.Context, rec MissingRecord) {
 	}
 }
 
-// Legacy methods for backward compatibility
-func (s *Server) addMissingProfile(ctx context.Context, did string) {
-	s.addMissingRecord(ctx, MissingRecord{
-		Type:       MissingRecordTypeProfile,
-		Identifier: did,
-	})
-}
-
-func (s *Server) addMissingPost(ctx context.Context, uri string) {
-	slog.Info("adding missing post to fetch queue", "uri", uri)
-	s.addMissingRecord(ctx, MissingRecord{
-		Type:       MissingRecordTypePost,
-		Identifier: uri,
-	})
-}
-
-func (s *Server) addMissingFeedGenerator(ctx context.Context, uri string) {
-	slog.Info("adding missing feed generator to fetch queue", "uri", uri)
-	s.addMissingRecord(ctx, MissingRecord{
-		Type:       MissingRecordTypeFeedGenerator,
-		Identifier: uri,
-	})
-}
-
-func (s *Server) missingRecordFetcher() {
-	for rec := range s.missingRecords {
+func (b *PostgresBackend) missingRecordFetcher() {
+	for rec := range b.missingRecords {
 		var err error
 		switch rec.Type {
 		case MissingRecordTypeProfile:
-			err = s.fetchMissingProfile(context.TODO(), rec.Identifier)
+			err = b.fetchMissingProfile(context.TODO(), rec.Identifier)
 		case MissingRecordTypePost:
-			err = s.fetchMissingPost(context.TODO(), rec.Identifier)
+			err = b.fetchMissingPost(context.TODO(), rec.Identifier)
 		case MissingRecordTypeFeedGenerator:
-			err = s.fetchMissingFeedGenerator(context.TODO(), rec.Identifier)
+			err = b.fetchMissingFeedGenerator(context.TODO(), rec.Identifier)
 		default:
 			slog.Error("unknown missing record type", "type", rec.Type)
 			continue
@@ -96,15 +73,15 @@ func (s *Server) missingRecordFetcher() {
 	}
 }
 
-func (s *Server) fetchMissingProfile(ctx context.Context, did string) error {
-	s.backend.AddRelevantDid(did)
+func (b *PostgresBackend) fetchMissingProfile(ctx context.Context, did string) error {
+	b.AddRelevantDid(did)
 
-	repo, err := s.backend.GetOrCreateRepo(ctx, did)
+	repo, err := b.GetOrCreateRepo(ctx, did)
 	if err != nil {
 		return err
 	}
 
-	resp, err := s.dir.LookupDID(ctx, syntax.DID(did))
+	resp, err := b.dir.LookupDID(ctx, syntax.DID(did))
 	if err != nil {
 		return err
 	}
@@ -133,10 +110,10 @@ func (s *Server) fetchMissingProfile(ctx context.Context, did string) error {
 		return err
 	}
 
-	return s.backend.HandleUpdateProfile(ctx, repo, "self", "", buf.Bytes(), cc)
+	return b.HandleUpdateProfile(ctx, repo, "self", "", buf.Bytes(), cc)
 }
 
-func (s *Server) fetchMissingPost(ctx context.Context, uri string) error {
+func (b *PostgresBackend) fetchMissingPost(ctx context.Context, uri string) error {
 	puri, err := syntax.ParseATURI(uri)
 	if err != nil {
 		return fmt.Errorf("invalid AT URI: %s", uri)
@@ -146,14 +123,14 @@ func (s *Server) fetchMissingPost(ctx context.Context, uri string) error {
 	collection := puri.Collection().String()
 	rkey := puri.RecordKey().String()
 
-	s.backend.AddRelevantDid(did)
+	b.AddRelevantDid(did)
 
-	repo, err := s.backend.GetOrCreateRepo(ctx, did)
+	repo, err := b.GetOrCreateRepo(ctx, did)
 	if err != nil {
 		return err
 	}
 
-	resp, err := s.dir.LookupDID(ctx, syntax.DID(did))
+	resp, err := b.dir.LookupDID(ctx, syntax.DID(did))
 	if err != nil {
 		return err
 	}
@@ -182,10 +159,10 @@ func (s *Server) fetchMissingPost(ctx context.Context, uri string) error {
 		return err
 	}
 
-	return s.backend.HandleCreatePost(ctx, repo, rkey, buf.Bytes(), cc)
+	return b.HandleCreatePost(ctx, repo, rkey, buf.Bytes(), cc)
 }
 
-func (s *Server) fetchMissingFeedGenerator(ctx context.Context, uri string) error {
+func (b *PostgresBackend) fetchMissingFeedGenerator(ctx context.Context, uri string) error {
 	puri, err := syntax.ParseATURI(uri)
 	if err != nil {
 		return fmt.Errorf("invalid AT URI: %s", uri)
@@ -194,14 +171,14 @@ func (s *Server) fetchMissingFeedGenerator(ctx context.Context, uri string) erro
 	did := puri.Authority().String()
 	collection := puri.Collection().String()
 	rkey := puri.RecordKey().String()
-	s.backend.AddRelevantDid(did)
+	b.AddRelevantDid(did)
 
-	repo, err := s.backend.GetOrCreateRepo(ctx, did)
+	repo, err := b.GetOrCreateRepo(ctx, did)
 	if err != nil {
 		return err
 	}
 
-	resp, err := s.dir.LookupDID(ctx, syntax.DID(did))
+	resp, err := b.dir.LookupDID(ctx, syntax.DID(did))
 	if err != nil {
 		return err
 	}
@@ -230,5 +207,5 @@ func (s *Server) fetchMissingFeedGenerator(ctx context.Context, uri string) erro
 		return err
 	}
 
-	return s.backend.HandleCreateFeedGenerator(ctx, repo, rkey, buf.Bytes(), cc)
+	return b.HandleCreateFeedGenerator(ctx, repo, rkey, buf.Bytes(), cc)
 }
