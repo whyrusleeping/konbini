@@ -201,6 +201,44 @@ curl http://localhost:4444/rescan/<DID OR HANDLE>
 
 It will take a minute but it should pull all records from that user.
 
+## Upstream Firehose Configuration
+
+Konbini supports both standard firehose endpoints as well as jetstream. If
+bandwidth and CPU usage is a concern, and you trust the jetstream endpoint,
+then it may be worth trying that out.
+
+The configuration file is formatted as follows:
+
+```json
+{
+  "backends": [
+    {
+      "type": "jetstream",
+      "host": "jetstream1.us-west.bsky.network"
+    }
+  ]
+}
+```
+
+The default (implicit) configuration file looks like this:
+
+```json
+{
+  "backends": [
+    {
+      "type": "firehose",
+      "host": "bsky.network"
+    }
+  ]
+}
+```
+
+Note that this is an array of backends, you can specify multiple upstreams, and
+konbini will read from all of them. The main intended purpose of this is to be
+able to subscribe directly to PDSs. PDSs currently only support the full
+firehose endpoint, not jetstream, so be sure to specify a type of "firehose"
+for individual PDS endpoints.
+
 ## License
 
 MIT (whyrusleeping)

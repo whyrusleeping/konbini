@@ -1,0 +1,8 @@
+{
+	"backends": [
+		{
+			"type": "jetstream",
+			"host": "jetstream1.us-west.bsky.network"
+		}
+	]
+}

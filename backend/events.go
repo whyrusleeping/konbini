@@ -3,6 +3,7 @@ package backend
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -11,7 +12,9 @@ import (
 	"github.com/bluesky-social/indigo/api/atproto"
 	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/bluesky-social/indigo/atproto/syntax"
+	lexutil "github.com/bluesky-social/indigo/lex/util"
 	"github.com/bluesky-social/indigo/repo"
+	jsmodels "github.com/bluesky-social/jetstream/pkg/models"
 	"github.com/ipfs/go-cid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/prometheus/client_golang/prometheus"
@@ -63,6 +66,71 @@ func (b *PostgresBackend) HandleEvent(ctx context.Context, evt *atproto.SyncSubs
 			return fmt.Errorf("failed to update rev: %w", err)
 		}
 	*/
+
+	return nil
+}
+
+func cborBytesFromEvent(evt *jsmodels.Event) ([]byte, error) {
+	val, err := lexutil.NewFromType(evt.Commit.Collection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load event record type: %w", err)
+	}
+
+	if err := json.Unmarshal(evt.Commit.Record, val); err != nil {
+		return nil, err
+	}
+
+	cval, ok := val.(lexutil.CBOR)
+	if !ok {
+		return nil, fmt.Errorf("decoded type was not cbor marshalable")
+	}
+
+	buf := new(bytes.Buffer)
+	if err := cval.MarshalCBOR(buf); err != nil {
+		return nil, fmt.Errorf("failed to marshal event to cbor: %w", err)
+	}
+
+	rec := buf.Bytes()
+	return rec, nil
+}
+
+func (b *PostgresBackend) HandleEventJetstream(ctx context.Context, evt *jsmodels.Event) error {
+
+	path := evt.Commit.Collection + "/" + evt.Commit.RKey
+	switch evt.Commit.Operation {
+	case jsmodels.CommitOperationCreate:
+		rec, err := cborBytesFromEvent(evt)
+		if err != nil {
+			return err
+		}
+
+		c, err := cid.Decode(evt.Commit.CID)
+		if err != nil {
+			return err
+		}
+
+		if err := b.HandleCreate(ctx, evt.Did, evt.Commit.Rev, path, &rec, &c); err != nil {
+			return fmt.Errorf("create record failed: %w", err)
+		}
+	case jsmodels.CommitOperationUpdate:
+		rec, err := cborBytesFromEvent(evt)
+		if err != nil {
+			return err
+		}
+
+		c, err := cid.Decode(evt.Commit.CID)
+		if err != nil {
+			return err
+		}
+
+		if err := b.HandleUpdate(ctx, evt.Did, evt.Commit.Rev, path, &rec, &c); err != nil {
+			return fmt.Errorf("update record failed: %w", err)
+		}
+	case jsmodels.CommitOperationDelete:
+		if err := b.HandleDelete(ctx, evt.Did, evt.Commit.Rev, path); err != nil {
+			return fmt.Errorf("delete record failed: %w", err)
+		}
+	}
 
 	return nil
 }

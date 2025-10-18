@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
@@ -19,12 +20,9 @@ import (
 	"github.com/bluesky-social/indigo/atproto/identity"
 	"github.com/bluesky-social/indigo/atproto/identity/redisdir"
 	"github.com/bluesky-social/indigo/atproto/syntax"
-	"github.com/bluesky-social/indigo/cmd/relay/stream"
-	"github.com/bluesky-social/indigo/cmd/relay/stream/schedulers/parallel"
 	"github.com/bluesky-social/indigo/repo"
 	"github.com/bluesky-social/indigo/util/cliutil"
 	xrpclib "github.com/bluesky-social/indigo/xrpc"
-	"github.com/gorilla/websocket"
 	"github.com/ipfs/go-cid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
@@ -70,6 +68,9 @@ func main() {
 		},
 		&cli.StringFlag{
 			Name: "redis-url",
+		},
+		&cli.StringFlag{
+			Name: "sync-config",
 		},
 	}
 	app.Action = func(cctx *cli.Context) error {
@@ -202,7 +203,6 @@ func main() {
 
 			db: db,
 		}
-		fmt.Println("MY DID: ", s.mydid)
 
 		pgb, err := backend.NewPostgresBackend(mydid, db, pool, cc, dir)
 		if err != nil {
@@ -241,12 +241,40 @@ func main() {
 			http.ListenAndServe(":4445", nil)
 		}()
 
-		seqno, err := loadLastSeq(db, "firehose_seq")
-		if err != nil {
-			fmt.Println("failed to load sequence number, starting over", err)
+		sc := SyncConfig{
+			Backends: []SyncBackend{
+				{
+					Type: "firehose",
+					Host: "bsky.network",
+				},
+			},
 		}
 
-		return s.startLiveTail(ctx, int(seqno), 10, 20)
+		if scfn := cctx.String("sync-config"); scfn != "" {
+			{
+				scfi, err := os.Open(scfn)
+				if err != nil {
+					return err
+				}
+				defer scfi.Close()
+
+				var lsc SyncConfig
+				if err := json.NewDecoder(scfi).Decode(&lsc); err != nil {
+					return err
+				}
+				sc = lsc
+			}
+		}
+
+		/*
+			sc.Backends[0] = SyncBackend{
+				Type: "jetstream",
+				Host: "jetstream1.us-west.bsky.network",
+			}
+		*/
+
+		return s.StartSyncEngine(ctx, &sc)
+
 	}
 
 	app.RunAndExitOnError()
@@ -272,95 +300,6 @@ type Server struct {
 func (s *Server) getXrpcClient() (*xrpclib.Client, error) {
 	// TODO: handle refreshing the token periodically
 	return s.client, nil
-}
-
-func (s *Server) startLiveTail(ctx context.Context, curs int, parWorkers, maxQ int) error {
-	slog.Info("starting live tail")
-
-	// Connect to the Relay websocket
-	urlStr := fmt.Sprintf("wss://bsky.network/xrpc/com.atproto.sync.subscribeRepos?cursor=%d", curs)
-
-	d := websocket.DefaultDialer
-	con, _, err := d.Dial(urlStr, http.Header{
-		"User-Agent": []string{"market/0.0.1"},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to connect to relay: %w", err)
-	}
-
-	var lelk sync.Mutex
-	lastEvent := time.Now()
-
-	go func() {
-		for range time.Tick(time.Second) {
-			lelk.Lock()
-			let := lastEvent
-			lelk.Unlock()
-
-			if time.Since(let) > time.Second*30 {
-				slog.Error("firehose connection timed out")
-				con.Close()
-				return
-			}
-
-		}
-
-	}()
-
-	var cclk sync.Mutex
-	var completeCursor int64
-
-	rsc := &stream.RepoStreamCallbacks{
-		RepoCommit: func(evt *atproto.SyncSubscribeRepos_Commit) error {
-			ctx := context.Background()
-
-			firehoseCursorGauge.WithLabelValues("ingest").Set(float64(evt.Seq))
-
-			s.seqLk.Lock()
-			if evt.Seq > s.lastSeq {
-				curs = int(evt.Seq)
-				s.lastSeq = evt.Seq
-
-				if evt.Seq%1000 == 0 {
-					if err := storeLastSeq(s.db, "firehose_seq", evt.Seq); err != nil {
-						fmt.Println("failed to store seqno: ", err)
-					}
-				}
-			}
-			s.seqLk.Unlock()
-
-			lelk.Lock()
-			lastEvent = time.Now()
-			lelk.Unlock()
-
-			if err := s.backend.HandleEvent(ctx, evt); err != nil {
-				return fmt.Errorf("handle event (%s,%d): %w", evt.Repo, evt.Seq, err)
-			}
-
-			cclk.Lock()
-			if evt.Seq > completeCursor {
-				completeCursor = evt.Seq
-				firehoseCursorGauge.WithLabelValues("complete").Set(float64(evt.Seq))
-			}
-			cclk.Unlock()
-
-			return nil
-		},
-		RepoInfo: func(info *atproto.SyncSubscribeRepos_Info) error {
-			return nil
-		},
-		// TODO: all the other event types
-		Error: func(errf *stream.ErrorFrame) error {
-			return fmt.Errorf("error frame: %s: %s", errf.Error, errf.Message)
-		},
-	}
-
-	sched := parallel.NewScheduler(parWorkers, maxQ, con.RemoteAddr().String(), rsc.EventHandler)
-
-	//s.eventScheduler = sched
-	//s.streamFinished = make(chan struct{})
-
-	return stream.HandleRepoStream(ctx, con, sched, slog.Default())
 }
 
 func (s *Server) resolveAccountIdent(ctx context.Context, acc string) (string, error) {

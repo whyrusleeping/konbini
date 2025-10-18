@@ -60,7 +60,7 @@ func (h *Hydrator) HydratePostDB(ctx context.Context, uri string, dbPost *models
 	if dbPost.NotFound || len(dbPost.Raw) == 0 {
 		if autoFetch {
 			h.AddMissingRecord(uri, true)
-			if err := h.db.Raw(`SELECT * FROM posts WHERE author = ? AND rkey = ? `, r.ID, extractRkeyFromURI(uri)).Scan(&dbPost).Error; err != nil {
+			if err := h.db.Raw(`SELECT * FROM posts WHERE author = ? AND rkey = ?`, r.ID, extractRkeyFromURI(uri)).Scan(&dbPost).Error; err != nil {
 				return nil, fmt.Errorf("failed to query post: %w", err)
 			}
 			if dbPost.NotFound || len(dbPost.Raw) == 0 {
